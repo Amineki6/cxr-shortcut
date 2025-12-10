@@ -1,0 +1,41 @@
+import torch.nn as nn
+from abc import ABC, abstractmethod
+
+class BaseMethod(ABC):
+    """
+    Abstract base class for training methods.
+    
+    This class enforces a standard interface so the training loop 
+    doesn't need to know the details of the specific algorithm (Standard vs SupCon).
+    """
+    def __init__(self, config):
+        self.config = config
+        self.bce = nn.BCEWithLogitsLoss()
+        self.metrics = {}
+
+    @abstractmethod
+    def get_model_components(self, num_features: int):
+        """
+        Constructs and returns the specific neural network heads required by the method.
+        
+        Args:
+            num_features: The output dimension of the encoder (e.g., 1024 for DenseNet121).
+            
+        Returns:
+            Tuple[nn.Module, Optional[nn.Module]]: (classifier, projection_head)
+        """
+        pass
+
+    @abstractmethod
+    def compute_loss(self, model_output, targets):
+        """
+        Calculates the total loss for the batch.
+        
+        Args:
+            model_output: The tuple returned by the model forward pass (logits, projections).
+            targets: The ground truth labels.
+            
+        Returns:
+            torch.Tensor: The final scalar loss to backward on.
+        """
+        pass
