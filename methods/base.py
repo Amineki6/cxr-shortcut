@@ -27,14 +27,15 @@ class BaseMethod(ABC):
         pass
 
     @abstractmethod
-    def compute_loss(self, model_output, targets):
+    def compute_loss(self, model_output, targets, extra_info=None):
         """
         Calculates the total loss for the batch.
         
         Args:
             model_output: The tuple returned by the model forward pass (logits, projections).
             targets: The ground truth labels.
-            
+            extra_info: Any additional information (e.g., drain) to consider for loss computation.
+
         Returns:
             torch.Tensor: The final scalar loss to backward on.
         """

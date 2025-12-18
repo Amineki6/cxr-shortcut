@@ -56,15 +56,16 @@ def run_training_phase(
         for batch in tqdm(train_loader, desc=f"Trial {trial.number} {wandb_prefix} Ep {epoch}", leave=False):
             # Dynamic Unpacking to handle Standard (2 items) vs JTT (3 items)
             if len(batch) == 3:
-                inputs, labels, _ = batch # Standard: inputs, labels, drain
+                inputs, labels, drain = batch  # <--- CHANGED: Captured drain
                 weights = None
             elif len(batch) == 4:
-                inputs, labels, weights, _ = batch # JTT: inputs, labels, weights, drain
+                inputs, labels, weights, drain = batch # <--- CHANGED: Captured drain
             else:
                 raise ValueError(f"Unexpected batch structure: len={len(batch)}")
 
             inputs = inputs.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
+            drain = drain.to(device, non_blocking=True) # <--- NEW: Move drain to GPU
             
             # Pass weights to method if they exist (JTT logic)
             targets = (labels, weights) if weights is not None else labels
@@ -73,7 +74,12 @@ def run_training_phase(
             
             # Forward & Loss
             model_output = model(inputs)
-            loss = method.compute_loss(model_output, targets)
+            
+            # <--- NEW: Create extra_info dictionary
+            extra_info = {"drain": drain} 
+            
+            # <--- CHANGED: Pass extra_info to compute_loss
+            loss = method.compute_loss(model_output, targets, extra_info=extra_info)
             
             loss.backward()
             optimizer.step()
@@ -106,13 +112,18 @@ def run_training_phase(
         
         with torch.no_grad():
             for batch in val_loader:
-                # Validation never uses JTT weights, so standard unpacking works
-                # But to be safe, we stick to the first 2 elements usually
                 inputs = batch[0].to(device, non_blocking=True)
                 labels = batch[1].to(device, non_blocking=True)
                 
+                # <--- NEW: Handle drain for validation if present
+                extra_info = {}
+                if len(batch) >= 3:
+                     drain = batch[2].to(device, non_blocking=True)
+                     extra_info["drain"] = drain
+
                 logits, projections = ema_model(inputs)
-                loss = method.compute_loss((logits, projections), labels)
+                # <--- CHANGED: Pass extra_info
+                loss = method.compute_loss((logits, projections), labels, extra_info=extra_info)
                 
                 batch_size = inputs.size(0)
                 val_loss_sum += loss.item() * batch_size
@@ -224,9 +235,12 @@ def run_testing_phase(
     with torch.no_grad():
         for inputs, labels, drain in tqdm(test_loader_aligned, desc="Test Aligned", leave=False):
             inputs, labels = inputs.to(device), labels.to(device)
+            drain = drain.to(device) # <--- NEW
+            
             logits, projections = ema_model(inputs)
             
-            loss = method.compute_loss((logits, projections), labels)
+            # <--- CHANGED
+            loss = method.compute_loss((logits, projections), labels, extra_info={"drain": drain})
             
             test_loss_aligned += loss.item() * inputs.size(0)
             test_auroc_aligned.update(logits.reshape(-1), labels)
@@ -238,7 +252,7 @@ def run_testing_phase(
             test_results_aligned.append(pd.DataFrame({
                 'label': labels.cpu(), 
                 'y_prob': probs.cpu(), 
-                'drain': drain
+                'drain': drain.cpu()
             }))
 
     test_loss_aligned /= len(test_loader_aligned.dataset)
@@ -273,7 +287,7 @@ def run_testing_phase(
             test_results_misaligned.append(pd.DataFrame({
                 'label': labels.cpu(), 
                 'y_prob': probs.cpu(), 
-                'drain': drain
+                'drain': drain.cpu()
             }))
 
     test_loss_misaligned /= len(test_loader_misaligned.dataset)

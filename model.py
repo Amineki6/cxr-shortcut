@@ -39,7 +39,10 @@ class CXP_Model(nn.Module):
         
         # Pass through projection head (Only if the strategy requested it)
         if self.projection_head is not None:
-            projections = self.projection_head(features)
+            if getattr(self.projection_head, 'requires_logits', False):
+                 projections = self.projection_head((features, logits))
+            else:
+                 projections = self.projection_head(features)
         else:
             projections = None
             

@@ -32,6 +32,13 @@ class ExperimentConfig:
     supcon_lambda: float = 0.50
     supcon_temperature: float = 0.10
 
+    mmd_lambda: float = 1.0
+
+    # Method-Specific Params: CDAN+E
+    # (Only used if method_name == "cdan")
+    cdan_lambda: float = 1.0
+    cdan_entropy: bool = True
+
     # -------------------------------------------------------------------------
     # 3. Data & Checkpointing
     # -------------------------------------------------------------------------

@@ -98,7 +98,7 @@ class SupConMethod(BaseMethod):
         )
         return clf, proj
 
-    def compute_loss(self, model_output, targets):
+    def compute_loss(self, model_output, targets, extra_info=None):
         logits, projections = model_output
         
         bce_loss = self.bce(logits.view(-1), targets.float())

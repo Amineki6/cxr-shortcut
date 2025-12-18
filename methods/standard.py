@@ -18,7 +18,7 @@ class StandardMethod(BaseMethod):
         # We return None for the projection head because we don't use it.
         return clf, None
 
-    def compute_loss(self, model_output, targets):
+    def compute_loss(self, model_output, targets, extra_info=None):
         logits, _ = model_output
         loss = self.bce(logits.view(-1), targets.float())
         
