@@ -256,12 +256,12 @@ if __name__ == '__main__':
     pruner = optuna.pruners.HyperbandPruner(min_resource=3, max_resource=30, reduction_factor=3)
     
     # Create Study with SQLite storage for persistence
-    storage_url = f"sqlite:///{study_root}/optuna_study.db"
+    #storage_url = f"sqlite:///{study_root}/optuna_study.db"
     study = optuna.create_study(
         direction=direction, 
         study_name=args.study_name,
         pruner=pruner,
-        storage=storage_url,
+        #storage=storage_url,
         load_if_exists=True
     )
     
