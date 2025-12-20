@@ -89,6 +89,11 @@ def objective(trial):
         if config.method_name == "supcon":
             config.supcon_lambda = 0.5
             config.supcon_temperature = 0.1
+        elif config.method_name == "mmd":
+            config.mmd_lambda = 1.0
+        elif config.method_name == "cdan":
+            config.cdan_lambda = 1.0
+            config.cdan_entropy = True
             
     else:
         # Optimizable Hyperparameters
@@ -100,6 +105,11 @@ def objective(trial):
         if config.method_name == "supcon":
             config.supcon_lambda = trial.suggest_float("supcon_lambda", 0.1, 1.0)
             config.supcon_temperature = trial.suggest_float("supcon_temperature", 0.05, 0.5)
+        elif config.method_name == "mmd":
+            config.mmd_lambda = trial.suggest_float("mmd_lambda", 0.1, 5.0)
+        elif config.method_name == "cdan":
+            config.cdan_lambda = trial.suggest_float("cdan_lambda", 0.1, 5.0)
+            config.cdan_entropy = True 
 
     # ====== WANDB ========================================================================
 
@@ -110,7 +120,8 @@ def objective(trial):
         group=GLOBAL_ARGS.study_name, 
         name=run_name,
         config=config.__dict__,
-        reinit=True
+        reinit=True,
+        dir=GLOBAL_ARGS.study_root  # Prevent creating ./wandb which shadows the library
     )
 
     # ====== SETUP TRAINING ================================================================
@@ -215,7 +226,7 @@ if __name__ == '__main__':
     
     # Methods
     parser.add_argument('--method', type=str, default='standard',
-                       choices=['standard', 'supcon'],
+                       choices=['standard', 'supcon', 'mmd', 'cdan'],
                        help='Method to use for training (default: standard)')
 
     args = parser.parse_args()
