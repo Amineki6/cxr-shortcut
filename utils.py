@@ -44,8 +44,19 @@ def run_training_phase(
     # To handle the return value
     final_best_metric = 0.0
 
+    # Freeze backbone for first few epochs, only train clf head for now
+    for param in model.encoder.parameters():
+        param.requires_grad = False
+
     for epoch in range(epochs_to_run):
         # --- TRAIN ---
+
+        if epoch == 5:
+            for param in model.encoder.parameters():
+                param.requires_grad = True
+            
+            logging.info(f'Unfreezing pretrained backbone, fully finetuning now.')
+
         model.train()
         train_loss_sum = 0.0
         train_bce_sum = 0.0

@@ -82,9 +82,9 @@ def objective(trial):
         config.num_workers = 0 
         
         # Fixed params for debug
-        config.lr = trial.suggest_categorical("lr", [0.001])
-        config.weight_decay = trial.suggest_categorical("weight_decay", [0.001])
-        config.ema_decay = trial.suggest_categorical("ema_decay", [0.99])
+        #config.lr = trial.suggest_categorical("lr", [0.001])
+        #config.weight_decay = trial.suggest_categorical("weight_decay", [0.001])
+        #config.ema_decay = trial.suggest_categorical("ema_decay", [0.99])
 
         if config.method_name == "supcon":
             config.supcon_lambda = 0.5
@@ -97,9 +97,9 @@ def objective(trial):
             
     else:
         # Optimizable Hyperparameters
-        config.lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
-        config.weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
-        config.ema_decay = trial.suggest_float("ema_decay", 0.9, 0.999)
+        #config.lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
+        #config.weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
+        #config.ema_decay = trial.suggest_float("ema_decay", 0.9, 0.999)
         
         # Only suggest SupCon params if we are actually using SupCon
         if config.method_name == "supcon":
@@ -142,8 +142,12 @@ def objective(trial):
     ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(config.ema_decay), use_buffers=True)
     
     # Init Optimizer
-    optimizer = optim.AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
-
+    #optimizer = optim.AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+    optimizer = optim.AdamW([
+        {'params': model.encoder.parameters(), 'lr': 2e-5},
+        {'params': model.clf.parameters(), 'lr': 1e-4}
+    ], weight_decay=0.005)
+    
     # Metrics for Test Phase
     test_auroc_aligned = BinaryAUROC()
     test_auroc_misaligned = BinaryAUROC()
