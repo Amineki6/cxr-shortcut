@@ -97,7 +97,7 @@ def objective(trial):
         elif config.method_name == "score_matching":
             config.score_matching_lambda = 1.0
         else:
-            raise NotImplementedError
+            assert config.method_name == "standard"
             
     else:
         # Optimizable Hyperparameters
@@ -116,7 +116,7 @@ def objective(trial):
         elif config.method_name == "score_matching":
             config.score_matching_lambda = trial.suggest_float("score_matching_lambda", 0.01, 50.0)
         else:
-            raise NotImplementedError
+            assert config.method_name == "standard"
 
     # ====== WANDB ========================================================================
 
