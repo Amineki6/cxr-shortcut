@@ -94,6 +94,10 @@ def objective(trial):
         elif config.method_name == "cdan":
             config.cdan_lambda = 1.0
             config.cdan_entropy = True
+        elif config.method_name == "score_matching":
+            config.score_matching_lambda = 1.0
+        else:
+            raise NotImplementedError
             
     else:
         # Optimizable Hyperparameters
@@ -101,15 +105,18 @@ def objective(trial):
         #config.weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         #config.ema_decay = trial.suggest_float("ema_decay", 0.9, 0.999)
         
-        # Only suggest SupCon params if we are actually using SupCon
         if config.method_name == "supcon":
-            config.supcon_lambda = trial.suggest_float("supcon_lambda", 0.1, 1.0)
+            config.supcon_lambda = trial.suggest_float("supcon_lambda", 0.01, 50.0)
             config.supcon_temperature = trial.suggest_float("supcon_temperature", 0.05, 0.5)
         elif config.method_name == "mmd":
-            config.mmd_lambda = trial.suggest_float("mmd_lambda", 0.1, 5.0)
+            config.mmd_lambda = trial.suggest_float("mmd_lambda", 0.01, 50.0)
         elif config.method_name == "cdan":
-            config.cdan_lambda = trial.suggest_float("cdan_lambda", 0.1, 5.0)
+            config.cdan_lambda = trial.suggest_float("cdan_lambda", 0.01, 50.0)
             config.cdan_entropy = True 
+        elif config.method_name == "score_matching":
+            config.score_matching_lambda = trial.suggest_float("score_matching_lambda", 0.01, 50.0)
+        else:
+            raise NotImplementedError
 
     # ====== WANDB ========================================================================
 
@@ -147,7 +154,7 @@ def objective(trial):
         {'params': model.encoder.parameters(), 'lr': 2e-5},
         {'params': model.clf.parameters(), 'lr': 1e-4}
     ], weight_decay=0.005)
-    
+
     # Metrics for Test Phase
     test_auroc_aligned = BinaryAUROC()
     test_auroc_misaligned = BinaryAUROC()

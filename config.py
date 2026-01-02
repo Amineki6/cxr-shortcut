@@ -39,6 +39,11 @@ class ExperimentConfig:
     cdan_lambda: float = 1.0
     cdan_entropy: bool = True
 
+    # Method-Specific Params: Score Matching
+    # (Only used if method_name == "score_matching")
+    score_matching_lambda: float = 1.0
+    score_matching_min_subgroup_count: int = 3
+
     # -------------------------------------------------------------------------
     # 3. Data & Checkpointing
     # -------------------------------------------------------------------------

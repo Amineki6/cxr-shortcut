@@ -80,7 +80,7 @@ class MMDMethod(BaseMethod):
 
     def compute_loss(self, model_output, targets, extra_info=None):
         """
-        Calculates Total Loss = BCE + (Lambda * MMD)
+        Calculates Total Loss = BCE + Lambda * MMD
         Uses 'extra_info' to access the Drain labels.
         """
         logits, features = model_output
