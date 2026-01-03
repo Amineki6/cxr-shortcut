@@ -34,8 +34,8 @@ def run_training_phase(
     device = config.device
     epochs_to_run = num_epochs if num_epochs is not None else config.epochs
     
-    model = torch.compile(model, fullgraph=True, mode="reduce-overhead")
-    ema_model = torch.compile(ema_model, fullgraph=True, mode="reduce-overhead")
+    model_compiled = torch.compile(model, fullgraph=True, mode="reduce-overhead")
+    ema_model_compiled = torch.compile(ema_model, fullgraph=True, mode="reduce-overhead")
 
     # Initialize Metrics
     train_auroc = BinaryAUROC()
@@ -48,19 +48,19 @@ def run_training_phase(
     final_best_metric = 0.0
 
     # Freeze backbone for first few epochs, only train clf head for now
-    for param in model.encoder.parameters():
+    for param in model_compiled.encoder.parameters():
         param.requires_grad = False
 
     for epoch in range(epochs_to_run):
         # --- TRAIN ---
 
         if epoch == 5:
-            for param in model.encoder.parameters():
+            for param in model_compiled.encoder.parameters():
                 param.requires_grad = True
             
             logging.info(f'Unfreezing pretrained backbone, fully finetuning now.')
 
-        model.train()
+        model_compiled.train()
         train_loss_sum = 0.0
         train_bce_sum = 0.0
         train_supcon_sum = 0.0
@@ -87,7 +87,7 @@ def run_training_phase(
             optimizer.zero_grad(set_to_none=True)
             
             # Forward & Loss
-            model_output = model(inputs)
+            model_output = model_compiled(inputs)
             
             extra_info = {"drain": drain} 
             
@@ -112,7 +112,7 @@ def run_training_phase(
             train_brier_sum += brier
             
         # EMA Update
-        ema_model.update_parameters(model)
+        ema_model.update_parameters(model_compiled)
 
         # --- VALIDATION ---
         ema_model.eval()
@@ -463,7 +463,7 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
     # 3. Run Training
     best_metric = run_training_phase(
         config=config,
-        model=model,
+        model_compiled=model,
         ema_model=ema_model,
         optimizer=optimizer,
         method=method,
