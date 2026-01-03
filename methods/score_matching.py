@@ -9,7 +9,7 @@ class ScoreMatchingLoss(nn.Module):
         super(ScoreMatchingLoss, self).__init__()
         self.min_subgroup_count = min_subgroup_count
 
-    def forward(probs, labels, groups):
+    def forward(self, probs, labels, groups):
         """
         Penalizes variance in average predicted scores across groups, separately
         for positive and negative class samples.
@@ -63,7 +63,7 @@ class ScoreMatchingLoss(nn.Module):
             f"Probs must be in [0, 1], got [{probs.min():.3f}, {probs.max():.3f}]"
         
         # 3. Clamp min_subgroup_count to valid range (no error, just silent correction)
-        min_subgroup_count = max(1, int(min_subgroup_count))
+        min_subgroup_count = max(1, int(self.min_subgroup_count))
         
         # 4. Compute average scores per group per class (with independent subgroup filtering)
         unique_groups = groups.unique()
@@ -150,7 +150,7 @@ class ScoreMatchingMethod(BaseMethod):
         Calculates Total Loss = BCE + Lambda * ScoreMatchingLoss
         Uses 'extra_info' to access the Drain labels.
         """
-        logits, features = model_output
+        logits, _ = model_output
         
         # 1. Classification Loss (Standard)
         bce_loss = self.bce(logits.view(-1), targets.float())
