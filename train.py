@@ -237,7 +237,7 @@ if __name__ == '__main__':
     
     # Methods
     parser.add_argument('--method', type=str, default='standard',
-                       choices=['standard', 'supcon', 'mmd', 'cdan'],
+                       choices=['standard', 'supcon', 'mmd', 'cdan', 'score_matching'],
                        help='Method to use for training (default: standard)')
 
     args = parser.parse_args()
