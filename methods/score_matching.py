@@ -135,6 +135,16 @@ class ScoreMatchingMethod(BaseMethod):
         # Default lambda is 1.0 if not specified in config
         self.lambda_val = getattr(config, 'score_matching_lambda', 1.0)
 
+    def get_model_components(self, num_features: int):
+        # Score matching only needs a classification head.
+        clf = nn.Sequential(
+            nn.Linear(num_features, 512),
+            nn.ReLU(),
+            nn.Linear(512, 1)
+        )
+        # We return None for the projection head because we don't use it.
+        return clf, None
+
     def compute_loss(self, model_output, targets, extra_info=None):
         """
         Calculates Total Loss = BCE + Lambda * ScoreMatchingLoss
