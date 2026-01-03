@@ -112,10 +112,10 @@ def run_training_phase(
             train_brier_sum += brier
             
         # EMA Update
-        ema_model.update_parameters(model_compiled)
+        ema_model_compiled.update_parameters(model_compiled)
 
         # --- VALIDATION ---
-        ema_model.eval()
+        ema_model_compiled.eval()
         val_loss_sum = 0.0
         val_bce_sum = 0.0
         val_supcon_sum = 0.0
@@ -132,7 +132,7 @@ def run_training_phase(
                      drain = batch[2].to(device, non_blocking=True)
                      extra_info["drain"] = drain
 
-                logits, projections = ema_model(inputs)
+                logits, projections = ema_model_compiled(inputs)
                 loss = method.compute_loss((logits, projections), labels, extra_info=extra_info)
                 
                 batch_size = inputs.size(0)
@@ -189,8 +189,8 @@ def run_training_phase(
         if save_chkpt:
             torch.save({
                 'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'ema_model_state_dict': ema_model.state_dict(),
+                'model_state_dict': model.state_dict(),  # intentionally not _compiled since otherwise reload does not work
+                'ema_model_state_dict': ema_model.state_dict(), # intentionally not _compiled since otherwise reload does not work
                 'optimizer_state_dict': optimizer.state_dict(),
                 'val_loss': epoch_val_loss,
                 'val_auroc': epoch_val_auroc
@@ -463,7 +463,7 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
     # 3. Run Training
     best_metric = run_training_phase(
         config=config,
-        model_compiled=model,
+        model=model,
         ema_model=ema_model,
         optimizer=optimizer,
         method=method,
