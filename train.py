@@ -1,18 +1,12 @@
-import os
 import sys
 import logging
 import argparse
 from pathlib import Path
-import copy
 import json
 import coolname
 import datetime
 
-import numpy as np
-import pandas as pd
-from tqdm import tqdm
 import torch
-import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import WeightedRandomSampler, DataLoader
 from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
@@ -22,13 +16,16 @@ import optuna
 
 # Local imports from your refactored structure
 from config import ExperimentConfig
-from dataset import CXP_dataset
 from model import CXP_Model
 import methods
 from utils import run_training_phase, get_dataloaders, run_final_eval, run_testing_phase
 
 # Global args placeholder to be populated in main
 GLOBAL_ARGS = None
+
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.deterministic = False
+torch.set_float32_matmul_precision('high')
 
 def setup_logging(root_dir):
     log_path = root_dir / "optuna_training.log"

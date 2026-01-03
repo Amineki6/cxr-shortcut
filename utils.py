@@ -67,16 +67,16 @@ def run_training_phase(
         for batch in tqdm(train_loader, desc=f"Trial {trial.number} {wandb_prefix} Ep {epoch}", leave=False):
             # Dynamic Unpacking to handle Standard (2 items) vs JTT (3 items)
             if len(batch) == 3:
-                inputs, labels, drain = batch  # <--- CHANGED: Captured drain
+                inputs, labels, drain = batch
                 weights = None
             elif len(batch) == 4:
-                inputs, labels, weights, drain = batch # <--- CHANGED: Captured drain
+                inputs, labels, weights, drain = batch
             else:
                 raise ValueError(f"Unexpected batch structure: len={len(batch)}")
 
             inputs = inputs.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
-            drain = drain.to(device, non_blocking=True) # <--- NEW: Move drain to GPU
+            drain = drain.to(device, non_blocking=True)
             
             # Pass weights to method if they exist (JTT logic)
             targets = (labels, weights) if weights is not None else labels
@@ -86,10 +86,8 @@ def run_training_phase(
             # Forward & Loss
             model_output = model(inputs)
             
-            # <--- NEW: Create extra_info dictionary
             extra_info = {"drain": drain} 
             
-            # <--- CHANGED: Pass extra_info to compute_loss
             loss = method.compute_loss(model_output, targets, extra_info=extra_info)
             
             loss.backward()
@@ -126,14 +124,12 @@ def run_training_phase(
                 inputs = batch[0].to(device, non_blocking=True)
                 labels = batch[1].to(device, non_blocking=True)
                 
-                # <--- NEW: Handle drain for validation if present
                 extra_info = {}
                 if len(batch) >= 3:
                      drain = batch[2].to(device, non_blocking=True)
                      extra_info["drain"] = drain
 
                 logits, projections = ema_model(inputs)
-                # <--- CHANGED: Pass extra_info
                 loss = method.compute_loss((logits, projections), labels, extra_info=extra_info)
                 
                 batch_size = inputs.size(0)
@@ -245,8 +241,8 @@ def run_testing_phase(
     
     with torch.no_grad():
         for inputs, labels, drain in tqdm(test_loader_aligned, desc="Test Aligned", leave=False):
-            inputs, labels = inputs.to(device), labels.to(device)
-            drain = drain.to(device)
+            inputs, labels = inputs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+            drain = drain.to(device, non_blocking=True)
             
             logits, projections = ema_model(inputs)
             
@@ -282,8 +278,8 @@ def run_testing_phase(
     
     with torch.no_grad():
         for inputs, labels, drain in tqdm(test_loader_misaligned, desc="Test Misaligned", leave=False):
-            inputs, labels = inputs.to(device), labels.to(device)
-            drain = drain.to(device)
+            inputs, labels = inputs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+            drain = drain.to(device, non_blocking=True)
             
             logits, projections = ema_model(inputs)
             
