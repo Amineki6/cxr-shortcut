@@ -34,6 +34,9 @@ def run_training_phase(
     device = config.device
     epochs_to_run = num_epochs if num_epochs is not None else config.epochs
     
+    model = torch.compile(model, fullgraph=True, mode="reduce-overhead")
+    ema_model = torch.compile(ema_model, fullgraph=True, mode="reduce-overhead")
+
     # Initialize Metrics
     train_auroc = BinaryAUROC()
     val_auroc = BinaryAUROC()
