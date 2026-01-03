@@ -246,11 +246,10 @@ def run_testing_phase(
     with torch.no_grad():
         for inputs, labels, drain in tqdm(test_loader_aligned, desc="Test Aligned", leave=False):
             inputs, labels = inputs.to(device), labels.to(device)
-            drain = drain.to(device) # <--- NEW
+            drain = drain.to(device)
             
             logits, projections = ema_model(inputs)
             
-            # <--- CHANGED
             loss = method.compute_loss((logits, projections), labels, extra_info={"drain": drain})
             
             test_loss_aligned += loss.item() * inputs.size(0)
@@ -284,10 +283,12 @@ def run_testing_phase(
     with torch.no_grad():
         for inputs, labels, drain in tqdm(test_loader_misaligned, desc="Test Misaligned", leave=False):
             inputs, labels = inputs.to(device), labels.to(device)
+            drain = drain.to(device)
+            
             logits, projections = ema_model(inputs)
             
-            loss = method.compute_loss((logits, projections), labels)
-            
+            loss = method.compute_loss((logits, projections), labels, extra_info={"drain": drain})
+
             test_loss_misaligned += loss.item() * inputs.size(0)
             test_auroc_misaligned.update(logits.reshape(-1), labels)
             
