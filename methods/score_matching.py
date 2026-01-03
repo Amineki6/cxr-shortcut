@@ -156,7 +156,7 @@ class ScoreMatchingMethod(BaseMethod):
         bce_loss = self.bce(logits.view(-1), targets.float())
         
         # 2. MMD Loss (Domain Alignment)
-        score_matching_val = self.score_matching_loss(probs=torch.sigmoid(logits),
+        score_matching_val = self.score_matching_loss(probs=torch.sigmoid(logits.view(-1)),
                                                       labels=targets,
                                                       groups=extra_info['drain'])
 
