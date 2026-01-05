@@ -310,6 +310,9 @@ if __name__ == '__main__':
         eval_root = study_root / "final_evaluation"
         eval_root.mkdir(exist_ok=True)
         
+        logging.info("Full config applied:")
+        logging.info(final_config)
+
         for i in range(args.n_eval_runs):
             run_dir = eval_root / f"run_{i}"
             run_final_eval(final_config, i, run_dir, args.study_name)

@@ -66,21 +66,24 @@ def run_training_phase(
         train_auroc.reset()
         
         for batch in tqdm(train_loader, desc=f"Trial {trial.number} {wandb_prefix} Ep {epoch}", leave=False):
-            # Dynamic Unpacking to handle Standard (2 items) vs JTT (3 items)
-            if len(batch) == 3:
-                inputs, labels, drain = batch
-                weights = None
-            elif len(batch) == 4:
+
+            if config.method_name == "jtt":
+                assert len(batch) == 4
                 inputs, labels, weights, drain = batch
             else:
-                raise ValueError(f"Unexpected batch structure: len={len(batch)}")
+                assert len(batch) == 3
+                inputs, labels, drain = batch
+                weights = None
 
             inputs = inputs.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
             drain = drain.to(device, non_blocking=True)
             
-            # Pass weights to method if they exist (JTT logic)
-            targets = (labels, weights) if weights is not None else labels
+            # Pass weights to method if they exist
+            if weights:
+                targets = (labels, weights) 
+            else:
+                targets = labels
 
             optimizer.zero_grad(set_to_none=True)
             
@@ -414,7 +417,7 @@ def get_dataloaders(config: ExperimentConfig, debug=False):
 
 def run_final_eval(config, trial_number, output_dir, run_name_prefix):
     """
-    Runs a standalone training session using a specific config (best params).
+    Runs a standalone training session using a specific config.
     Uses DummyTrial to bypass Optuna reporting/pruning.
     """
     logging.info(f"--- Starting Final Eval Run {trial_number} ---")

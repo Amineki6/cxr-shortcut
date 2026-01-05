@@ -14,17 +14,17 @@ class ExperimentConfig:
     # -------------------------------------------------------------------------
     # 1. Method Selection
     # -------------------------------------------------------------------------
-    # Options: "standard", "supcon" (and any future methods you add)
-    method_name: str = "supcon" 
+    # Options: "standard", "supcon", "mmd", "score_matching"
+    method_name: str = "standard" 
 
     # -------------------------------------------------------------------------
-    # 2. Hyperparameters (The Search Space)
+    # 2. Hyperparameters
     # -------------------------------------------------------------------------
-    # General Optimizer Params
+    # General Optimizer Params (not tuned)
     lr: float = 0.0001
     weight_decay: float = 0.005
     
-    # EMA (Exponential Moving Average) Params
+    # EMA (Exponential Moving Average) Params (not tuned)
     ema_decay: float = 0.9
     
     # Method-Specific Params: Supervised Contrastive Learning

@@ -150,7 +150,7 @@ class ScoreMatchingMethod(BaseMethod):
 
     def compute_loss(self, 
                      model_output: tuple[torch.Tensor, Optional[torch.Tensor]], 
-                     targets, 
+                     targets: torch.Tensor, 
                      extra_info: Optional[dict] = None
                      ) -> torch.Tensor:
         """
