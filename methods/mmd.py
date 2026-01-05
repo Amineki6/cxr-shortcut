@@ -101,7 +101,7 @@ class MMDMethod(BaseMethod):
                      model_output: tuple[torch.Tensor, Optional[torch.Tensor]], 
                      targets: torch.Tensor, 
                      extra_info: Optional[dict] = None
-                     ) -> torch.Tensor:
+                     ) -> tuple[torch.Tensor, dict]:
         """
         Calculates Total Loss = BCE + Lambda * MMD
         Uses 'extra_info' to access the Drain labels.
@@ -123,10 +123,7 @@ class MMDMethod(BaseMethod):
 
         total_loss = bce_loss + (self.lambda_val * mmd_val)
         
-        # Store for logging
-        self.metrics = {
+        return total_loss, {
             "bce": bce_loss.item(),
             "mmd": mmd_val.item()
         }
-        
-        return total_loss

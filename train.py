@@ -195,7 +195,7 @@ if __name__ == '__main__':
                        help='Use weighted sampler for training')
     parser.add_argument('--balance_val', type=lambda x: x.lower() == 'true', default=False,
                        help='Use balanced validation set')
-    parser.add_argument('--select_chkpt_on', type=str, default="loss", choices=["loss", "auroc"],
+    parser.add_argument('--select_chkpt_on', type=str, default="bce", choices=["bce", "auroc"],
                        help='Metric to select best model')
     parser.add_argument('--debug', action='store_true', 
                        help='Run in debug mode (tiny data, 1 epoch, CPU/MPS friendly)')

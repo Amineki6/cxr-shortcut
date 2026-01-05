@@ -52,8 +52,8 @@ class ExperimentConfig:
     balance_val: bool = False
     
     # Checkpoint Selection Metric
-    # Options: "loss", "auroc"
-    select_chkpt_on: str = "loss"
+    # Options: "bce", "auroc"
+    select_chkpt_on: str = "bce"
 
     # -------------------------------------------------------------------------
     # 4. Training Loop Constants

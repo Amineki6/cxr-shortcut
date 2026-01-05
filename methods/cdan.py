@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from typing import Optional
 from .base import BaseMethod
+from config import ExperimentConfig
+
 
 class GradientReversalLayer(torch.autograd.Function):
     """
@@ -17,6 +19,7 @@ class GradientReversalLayer(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         return grad_output.neg() * ctx.alpha, None
+
 
 class Discriminator(nn.Module):
     """
@@ -54,14 +57,15 @@ class Discriminator(nn.Module):
 
         return self.layer(h_grl)
 
+
 class CDANMethod(BaseMethod):
-    def __init__(self, config):
+    def __init__(self, config: ExperimentConfig):
         super().__init__(config)
         self.bce_loss_none = nn.BCEWithLogitsLoss(reduction='none') # For entropy weighting
         self.cdan_lambda = getattr(config, 'cdan_lambda', 1.0)
         self.cdan_entropy = getattr(config, 'cdan_entropy', False)
 
-    def get_model_components(self, num_features: int):
+    def get_model_components(self, num_features: int) -> tuple[nn.Module, Optional[nn.Module]]:
         # 1. Main Classifier
         classifier = nn.Linear(num_features, 1)
         
@@ -73,7 +77,12 @@ class CDANMethod(BaseMethod):
         
         return classifier, discriminator
 
-    def compute_loss(self, model_output, targets, extra_info=None):
+    def compute_loss(self, 
+                     model_output: tuple[torch.Tensor, Optional[torch.Tensor]], 
+                     targets: torch.Tensor, 
+                     extra_info: Optional[dict] = None
+                     ) -> tuple[torch.Tensor, dict]:
+        
         logits, discriminator_out = model_output
         
         # 1. Classification Loss
@@ -119,10 +128,7 @@ class CDANMethod(BaseMethod):
         
         total_loss = cls_loss + disc_loss
 
-        # Store metrics
-        self.metrics = {
+        return total_loss, {
             "bce": cls_loss.item(),
             "cdan_disc": disc_loss.item()
         }
-        
-        return total_loss

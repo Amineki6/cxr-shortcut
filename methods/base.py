@@ -16,7 +16,6 @@ class BaseMethod(ABC):
     def __init__(self, config: ExperimentConfig):
         self.config = config
         self.bce = nn.BCEWithLogitsLoss()
-        self.metrics = {}
 
     @abstractmethod
     def get_model_components(self, num_features: int) -> tuple[nn.Module, Optional[nn.Module]]:
@@ -36,7 +35,7 @@ class BaseMethod(ABC):
                      model_output: tuple[torch.Tensor, Optional[torch.Tensor]], 
                      targets: torch.Tensor, 
                      extra_info: Optional[dict] = None
-                     ) -> torch.Tensor:
+                     ) -> tuple[torch.Tensor, dict]:
         """
         Calculates the total loss for the batch.
         
@@ -47,5 +46,6 @@ class BaseMethod(ABC):
 
         Returns:
             torch.Tensor: The final scalar loss to backward on.
+            dict: Loss components. (At least "bce" is always present.)
         """
         pass

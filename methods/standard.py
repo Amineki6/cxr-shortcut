@@ -22,7 +22,4 @@ class StandardMethod(BaseMethod):
         logits, _ = model_output
         loss = self.bce(logits.view(-1), targets.float())
         
-        # Optional: Explicitly log it, or rely on defaults in train.py
-        self.metrics = {"bce": loss.item()} 
-        
-        return loss
+        return loss, {"bce": loss.item()}

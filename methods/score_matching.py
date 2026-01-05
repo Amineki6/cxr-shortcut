@@ -152,12 +152,13 @@ class ScoreMatchingMethod(BaseMethod):
                      model_output: tuple[torch.Tensor, Optional[torch.Tensor]], 
                      targets: torch.Tensor, 
                      extra_info: Optional[dict] = None
-                     ) -> torch.Tensor:
+                     ) -> tuple[torch.Tensor, dict]:
         """
         Calculates Total Loss = BCE + Lambda * ScoreMatchingLoss
         Uses 'extra_info' to access the Drain labels.
         """
         assert extra_info is not None
+        assert 'drain' in extra_info.keys()
 
         logits, _ = model_output
         
@@ -171,10 +172,5 @@ class ScoreMatchingMethod(BaseMethod):
 
         total_loss = bce_loss + self.lambda_val * score_matching_val
         
-        # Store for logging
-        self.metrics = {
-            "bce": bce_loss.item(),
-            "score_matching_loss": score_matching_val.item()
-        }
-        
-        return total_loss
+        return total_loss, {"bce": bce_loss.item(), "score_matching_loss": score_matching_val.item()}
+    

@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Optional
 from .base import BaseMethod
+from config import ExperimentConfig
+
 
 # Single-GPU version adapted by Claude from https://github.com/google-research/syn-rep-learn/blob/main/StableRep/models/losses.py
 # (or at least I told it to)
@@ -19,7 +22,7 @@ class SupervisedContrastiveLoss(nn.Module):
         super(SupervisedContrastiveLoss, self).__init__()
         self.temperature = temperature
         
-    def forward(self, feats, labels):
+    def forward(self, feats: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         """
         Args:
             feats: Feature embeddings, shape [B, D] (should be from a projection head)
@@ -76,12 +79,12 @@ class SupConMethod(BaseMethod):
     """
     Training strategy using Supervised Contrastive Loss + BCE.
     """
-    def __init__(self, config):
+    def __init__(self, config: ExperimentConfig):
         super().__init__(config)
         # Initialize the custom loss using the config parameter
         self.supcon_loss = SupervisedContrastiveLoss(temperature=config.supcon_temperature)
 
-    def get_model_components(self, num_features: int):
+    def get_model_components(self, num_features: int) -> tuple[nn.Module, Optional[nn.Module]]:
         # 1. Classification Head
         clf = nn.Sequential(
             nn.Linear(num_features, 512),
@@ -98,7 +101,12 @@ class SupConMethod(BaseMethod):
         )
         return clf, proj
 
-    def compute_loss(self, model_output, targets, extra_info=None):
+    def compute_loss(self, 
+                     model_output: tuple[torch.Tensor, Optional[torch.Tensor]], 
+                     targets: torch.Tensor, 
+                     extra_info: Optional[dict] = None
+                     ) -> tuple[torch.Tensor, dict]:
+        
         logits, projections = model_output
         
         bce_loss = self.bce(logits.view(-1), targets.float())
@@ -110,10 +118,4 @@ class SupConMethod(BaseMethod):
 
         total_loss = bce_loss + (self.config.supcon_lambda * supcon_loss)
         
-        # STORE METRICS IN STATE
-        self.metrics = {
-            "bce": bce_loss.item(), 
-            "supcon": supcon_loss.item()
-        }
-        
-        return total_loss
+        return total_loss, {"bce": bce_loss.item(), "supcon": supcon_loss.item()}

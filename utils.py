@@ -8,6 +8,7 @@ import pandas as pd
 import torch.optim as optim
 from torch.utils.data import WeightedRandomSampler, DataLoader
 from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
+from typing import Optional
 
 from config import ExperimentConfig
 from dataset import CXP_dataset
@@ -25,9 +26,9 @@ def run_training_phase(
     val_loader, 
     trial,
     chkpt_path,
-    num_epochs=None,      # Allow overriding config.epochs (crucial for JTT Stage 1)
-    wandb_prefix="",      # Allow prefixing logs (e.g., "stage1/")
-    allow_pruning=True    # JTT Stage 1 usually shouldn't prune the whole trial
+    num_epochs: Optional[int] = None,      # Allow overriding config.epochs (crucial for JTT Stage 1)
+    wandb_prefix: str = "",      # Allow prefixing logs (e.g., "stage1/")
+    allow_pruning: bool = True    # JTT Stage 1 usually shouldn't prune the whole trial
 ):
     device = config.device
     epochs_to_run = num_epochs if num_epochs is not None else config.epochs
@@ -39,11 +40,11 @@ def run_training_phase(
     train_auroc = BinaryAUROC()
     val_auroc = BinaryAUROC()
 
-    best_val_loss = 10000.0
+    best_val_bce = float('inf')
     best_val_auroc = 0.0
-    
+
     # To handle the return value
-    final_best_metric = 0.0
+    final_best_metric = None
 
     # Freeze backbone for first few epochs, only train clf head for now
     for param in model_compiled.encoder.parameters():
@@ -61,7 +62,6 @@ def run_training_phase(
         model_compiled.train()
         train_loss_sum = 0.0
         train_bce_sum = 0.0
-        train_supcon_sum = 0.0
         train_brier_sum = 0.0
         train_auroc.reset()
         
@@ -92,7 +92,7 @@ def run_training_phase(
             
             extra_info = {"drain": drain} 
             
-            loss = method.compute_loss(model_output, targets, extra_info=extra_info)
+            loss, components = method.compute_loss(model_output, targets, extra_info=extra_info)
             
             loss.backward()
             optimizer.step()
@@ -100,9 +100,8 @@ def run_training_phase(
             # Logging Sums
             batch_size = inputs.size(0)
             train_loss_sum += loss.item() * batch_size
-            train_bce_sum += method.metrics.get("bce", loss.item()) * batch_size
-            train_supcon_sum += method.metrics.get("supcon", 0.0) * batch_size
-            
+            train_bce_sum += components["bce"] * batch_size
+
             # Metrics
             logits, _ = model_output
             flat_logits = logits.reshape(-1)
@@ -119,7 +118,6 @@ def run_training_phase(
         ema_model_compiled.eval()
         val_loss_sum = 0.0
         val_bce_sum = 0.0
-        val_supcon_sum = 0.0
         val_brier_sum = 0.0
         val_auroc.reset()
         
@@ -134,13 +132,11 @@ def run_training_phase(
                      extra_info["drain"] = drain
 
                 logits, projections = ema_model_compiled(inputs)
-                loss = method.compute_loss((logits, projections), labels, extra_info=extra_info)
+                loss, components = method.compute_loss((logits, projections), labels, extra_info=extra_info)
                 
                 batch_size = inputs.size(0)
                 val_loss_sum += loss.item() * batch_size
-                
-                val_bce_sum += method.metrics.get("bce", loss.item()) * batch_size
-                val_supcon_sum += method.metrics.get("supcon", 0.0) * batch_size
+                val_bce_sum += components["bce"] * batch_size
                 
                 flat_logits = logits.reshape(-1)
                 val_auroc.update(flat_logits, labels)
@@ -150,12 +146,14 @@ def run_training_phase(
                 val_brier_sum += brier
 
         # Aggregation
-        epoch_train_loss = train_loss_sum / len(train_loader)
-        epoch_val_loss = val_loss_sum / len(val_loader)
+        epoch_train_loss = train_loss_sum / len(train_loader.dataset)
+        epoch_val_loss = val_loss_sum / len(val_loader.dataset)
+        epoch_train_bce = train_bce_sum / len(train_loader.dataset)
+        epoch_val_bce = val_bce_sum / len(val_loader.dataset)
         epoch_train_auroc = train_auroc.compute().item()
         epoch_val_auroc = val_auroc.compute().item()
-        epoch_train_brier = train_brier_sum / len(train_loader)
-        epoch_val_brier = val_brier_sum / len(val_loader)
+        epoch_train_brier = train_brier_sum / len(train_loader.dataset)
+        epoch_val_brier = val_brier_sum / len(val_loader.dataset)
 
         # Logging
         logging.info(f"{wandb_prefix}Trial {trial.number} Ep [{epoch+1}/{epochs_to_run}] "
@@ -166,10 +164,8 @@ def run_training_phase(
             f"{wandb_prefix}epoch": epoch,
             f"{wandb_prefix}Loss/train": epoch_train_loss,
             f"{wandb_prefix}Loss/val": epoch_val_loss,
-            f"{wandb_prefix}BCE/train": train_bce_sum / len(train_loader),
-            f"{wandb_prefix}BCE/val": val_bce_sum / len(val_loader),
-            f"{wandb_prefix}SupCon/train": train_supcon_sum / len(train_loader),
-            f"{wandb_prefix}SupCon/val": val_supcon_sum / len(val_loader),
+            f"{wandb_prefix}BCE/train": epoch_train_bce,
+            f"{wandb_prefix}BCE/val": epoch_val_bce,
             f"{wandb_prefix}auroc/train": epoch_train_auroc,
             f"{wandb_prefix}auroc/val": epoch_val_auroc,
             f"{wandb_prefix}brier/train": epoch_train_brier,
@@ -182,10 +178,10 @@ def run_training_phase(
             best_val_auroc = epoch_val_auroc
             save_chkpt = True
             final_best_metric = best_val_auroc
-        elif config.select_chkpt_on.upper() == "LOSS" and epoch_val_loss < best_val_loss:
-            best_val_loss = epoch_val_loss
+        elif config.select_chkpt_on.upper() == "BCE" and epoch_val_bce < best_val_bce:
+            best_val_bce = epoch_val_bce
             save_chkpt = True
-            final_best_metric = best_val_loss
+            final_best_metric = best_val_bce            
             
         if save_chkpt:
             torch.save({
@@ -249,9 +245,10 @@ def run_testing_phase(
             
             logits, projections = ema_model(inputs)
             
-            loss = method.compute_loss((logits, projections), labels, extra_info={"drain": drain})
+            loss, components = method.compute_loss((logits, projections), labels, extra_info={"drain": drain})
             
-            test_loss_aligned += loss.item() * inputs.size(0)
+            batchsize = inputs.size(0)
+            test_loss_aligned += loss.item() * batchsize
             test_auroc_aligned.update(logits.reshape(-1), labels)
             
             probs = torch.sigmoid(logits.reshape(-1))
@@ -286,9 +283,10 @@ def run_testing_phase(
             
             logits, projections = ema_model(inputs)
             
-            loss = method.compute_loss((logits, projections), labels, extra_info={"drain": drain})
+            loss, components = method.compute_loss((logits, projections), labels, extra_info={"drain": drain})
 
-            test_loss_misaligned += loss.item() * inputs.size(0)
+            batchsize = inputs.size(0)
+            test_loss_misaligned += loss.item() * batchsize
             test_auroc_misaligned.update(logits.reshape(-1), labels)
             
             probs = torch.sigmoid(logits.reshape(-1))
