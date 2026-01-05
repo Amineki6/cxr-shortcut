@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torchvision.models import densenet121
 from typing import Optional
-from .methods.base import BaseMethod
+from methods.base import BaseMethod
 
 class CXP_Model(nn.Module):
     """
