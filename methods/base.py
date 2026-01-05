@@ -2,7 +2,9 @@ import torch.nn as nn
 from abc import ABC, abstractmethod
 from typing import Optional
 import torch
-from ..config import ExperimentConfig
+
+from config import ExperimentConfig
+
 
 class BaseMethod(ABC):
     """

@@ -1,8 +1,10 @@
 import torch
 import torch.nn as nn
-from .base import BaseMethod
-from ..config import ExperimentConfig
 from typing import Optional
+
+from .base import BaseMethod
+from config import ExperimentConfig
+
 
 class MMDLoss(nn.Module):
     """

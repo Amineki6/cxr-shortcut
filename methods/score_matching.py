@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
 from typing import Optional
+
 from .base import BaseMethod
-from ..config import ExperimentConfig
+from config import ExperimentConfig
 
 
 class ScoreMatchingLoss(nn.Module):
