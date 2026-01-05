@@ -23,9 +23,7 @@ def run_training_phase(
     method, 
     train_loader, 
     val_loader, 
-    trial, 
-    n_train, 
-    n_val, 
+    trial,
     chkpt_path,
     num_epochs=None,      # Allow overriding config.epochs (crucial for JTT Stage 1)
     wandb_prefix="",      # Allow prefixing logs (e.g., "stage1/")
@@ -58,7 +56,7 @@ def run_training_phase(
             for param in model_compiled.encoder.parameters():
                 param.requires_grad = True
             
-            logging.info(f'Unfreezing pretrained backbone, fully finetuning now.')
+            logging.info('Unfreezing pretrained backbone, fully finetuning now.')
 
         model_compiled.train()
         train_loss_sum = 0.0
@@ -149,12 +147,12 @@ def run_training_phase(
                 val_brier_sum += brier
 
         # Aggregation
-        epoch_train_loss = train_loss_sum / n_train
-        epoch_val_loss = val_loss_sum / n_val
+        epoch_train_loss = train_loss_sum / len(train_loader)
+        epoch_val_loss = val_loss_sum / len(val_loader)
         epoch_train_auroc = train_auroc.compute().item()
         epoch_val_auroc = val_auroc.compute().item()
-        epoch_train_brier = train_brier_sum / n_train
-        epoch_val_brier = val_brier_sum / n_val
+        epoch_train_brier = train_brier_sum / len(train_loader)
+        epoch_val_brier = val_brier_sum / len(val_loader)
 
         # Logging
         logging.info(f"{wandb_prefix}Trial {trial.number} Ep [{epoch+1}/{epochs_to_run}] "
@@ -165,10 +163,10 @@ def run_training_phase(
             f"{wandb_prefix}epoch": epoch,
             f"{wandb_prefix}Loss/train": epoch_train_loss,
             f"{wandb_prefix}Loss/val": epoch_val_loss,
-            f"{wandb_prefix}BCE/train": train_bce_sum / n_train,
-            f"{wandb_prefix}BCE/val": val_bce_sum / n_val,
-            f"{wandb_prefix}SupCon/train": train_supcon_sum / n_train,
-            f"{wandb_prefix}SupCon/val": val_supcon_sum / n_val,
+            f"{wandb_prefix}BCE/train": train_bce_sum / len(train_loader),
+            f"{wandb_prefix}BCE/val": val_bce_sum / len(val_loader),
+            f"{wandb_prefix}SupCon/train": train_supcon_sum / len(train_loader),
+            f"{wandb_prefix}SupCon/val": val_supcon_sum / len(val_loader),
             f"{wandb_prefix}auroc/train": epoch_train_auroc,
             f"{wandb_prefix}auroc/val": epoch_val_auroc,
             f"{wandb_prefix}brier/train": epoch_train_brier,
@@ -207,7 +205,6 @@ def run_training_phase(
     return final_best_metric
 
 def run_testing_phase(
-    config,
     ema_model,
     method,
     device,
@@ -342,6 +339,7 @@ class DummyTrial:
     def suggest_categorical(self, name, choices):
         return self.params.get(name, choices[0])
 
+
 def get_dataloaders(config: ExperimentConfig, debug=False):
     # Determine CSV filenames based on config
     if config.balance_val:
@@ -351,14 +349,12 @@ def get_dataloaders(config: ExperimentConfig, debug=False):
         train_csv = config.csv_dir / 'train_drain_shortcut.csv'
         val_csv = config.csv_dir / 'val_drain_shortcut.csv'
 
-    # Initialize Datasets
     train_data = CXP_dataset(config.data_dir, train_csv, augment=True)
     val_data = CXP_dataset(config.data_dir, val_csv, augment=False)
     
     test_data_aligned = CXP_dataset(config.data_dir, config.csv_dir / 'test_drain_shortcut_aligned.csv', augment=False)
     test_data_misaligned = CXP_dataset(config.data_dir, config.csv_dir / 'test_drain_shortcut_misaligned.csv', augment=False)
 
-    # --- DEBUG MODE SUBSETTING ---
     if debug:
         logging.info("DEBUG MODE ACTIVE: Subsetting datasets to max 50 samples.")
         def fast_subset(ds, n=50):
@@ -370,7 +366,6 @@ def get_dataloaders(config: ExperimentConfig, debug=False):
         test_data_misaligned = fast_subset(test_data_misaligned, 20)
         
         config.balance_train = False
-    # -----------------------------
 
     # --- SAMPLER LOGIC ---
     sampler = None
@@ -387,9 +382,7 @@ def get_dataloaders(config: ExperimentConfig, debug=False):
 
         sampler = WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True)
 
-    # --- FIX: Set prefetch_factor conditionally ---
     prefetch_factor = 2 if config.num_workers > 0 else None
-    # ----------------------------------------------
 
     # Create Loaders
     train_loader = DataLoader(
@@ -416,7 +409,8 @@ def get_dataloaders(config: ExperimentConfig, debug=False):
         prefetch_factor=prefetch_factor
     )
 
-    return train_loader, val_loader, test_loader_aligned, test_loader_misaligned, len(train_data), len(val_data)
+    return train_loader, val_loader, test_loader_aligned, test_loader_misaligned
+
 
 def run_final_eval(config, trial_number, output_dir, run_name_prefix):
     """
@@ -443,7 +437,7 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
     trial = DummyTrial(trial_number)
     
     # Get Data
-    train_loader, val_loader, test_loader_aligned, test_loader_misaligned, n_train, n_val = get_dataloaders(config, debug=(config.num_workers == 0 and config.epochs == 2)) 
+    train_loader, val_loader, test_loader_aligned, test_loader_misaligned = get_dataloaders(config, debug=(config.num_workers == 0 and config.epochs == 2)) 
     
     # Get Method Strategy
     method = methods.get_method(config.method_name, config)
@@ -461,7 +455,7 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
     chkpt_path = output_dir / f'run_{trial_number}_best.chkpt'
 
     # 3. Run Training
-    best_metric = run_training_phase(
+    run_training_phase(
         config=config,
         model=model,
         ema_model=ema_model,
@@ -470,8 +464,6 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
         train_loader=train_loader,
         val_loader=val_loader,
         trial=trial,
-        n_train=n_train,
-        n_val=n_val,
         chkpt_path=chkpt_path,
         wandb_prefix="",
         allow_pruning=False 
@@ -479,7 +471,6 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
 
     # 4. Run Testing
     run_testing_phase(
-        config=config,
         ema_model=ema_model,
         method=method,
         device=device,

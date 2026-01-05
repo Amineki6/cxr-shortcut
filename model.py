@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 from torchvision.models import densenet121
+from typing import Optional
+from .methods.base import BaseMethod
 
 class CXP_Model(nn.Module):
     """
@@ -9,7 +11,7 @@ class CXP_Model(nn.Module):
     The architecture (classifier and optional projection heads) is determined 
     by the 'method_strategy' passed during initialization.
     """
-    def __init__(self, method_strategy):
+    def __init__(self, method_strategy: BaseMethod):
         """
         Args:
             method_strategy: An instance of a class inheriting from methods.BaseMethod.
@@ -30,7 +32,7 @@ class CXP_Model(nn.Module):
         # This returns the classifier and, optionally, the projection head
         self.clf, self.projection_head = method_strategy.get_model_components(num_features)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         # Extract features from backbone
         features = self.encoder(x)
         
@@ -48,7 +50,7 @@ class CXP_Model(nn.Module):
             
         return logits, projections
     
-    def predict_proba(self, x):
+    def predict_proba(self, x: torch.Tensor) -> torch.Tensor:
         """
         Helper for inference to get probabilities directly.
         """

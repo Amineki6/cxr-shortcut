@@ -1,5 +1,8 @@
 import torch.nn as nn
 from abc import ABC, abstractmethod
+from typing import Optional
+import torch
+from ..config import ExperimentConfig
 
 class BaseMethod(ABC):
     """
@@ -8,13 +11,13 @@ class BaseMethod(ABC):
     This class enforces a standard interface so the training loop 
     doesn't need to know the details of the specific algorithm (Standard vs SupCon).
     """
-    def __init__(self, config):
+    def __init__(self, config: ExperimentConfig):
         self.config = config
         self.bce = nn.BCEWithLogitsLoss()
         self.metrics = {}
 
     @abstractmethod
-    def get_model_components(self, num_features: int):
+    def get_model_components(self, num_features: int) -> tuple[nn.Module, Optional[nn.Module]]:
         """
         Constructs and returns the specific neural network heads required by the method.
         
@@ -27,7 +30,11 @@ class BaseMethod(ABC):
         pass
 
     @abstractmethod
-    def compute_loss(self, model_output, targets, extra_info=None):
+    def compute_loss(self, 
+                     model_output: tuple[torch.Tensor, Optional[torch.Tensor]], 
+                     targets: torch.Tensor, 
+                     extra_info: Optional[dict] = None
+                     ) -> torch.Tensor:
         """
         Calculates the total loss for the batch.
         

@@ -1,21 +1,38 @@
 import torch
 import torch.nn as nn
 from .base import BaseMethod
+from ..config import ExperimentConfig
+from typing import Optional
 
 class MMDLoss(nn.Module):
     """
     Self-contained implementation of Maximum Mean Discrepancy (MMD) 
     using Multi-Kernel Gaussian RBF, similar to the logic in pytorch-adapt.
     """
-    def __init__(self, kernel_mul=2.0, kernel_num=5):
+    def __init__(self, kernel_mul: float = 2.0, kernel_num: int = 5, fix_sigma: Optional[float] = None):
         super(MMDLoss, self).__init__()
         self.kernel_num = kernel_num
         self.kernel_mul = kernel_mul
-        self.fix_sigma = None
+        self.fix_sigma = fix_sigma
 
-    def gaussian_kernel(self, source, target, kernel_mul=2.0, kernel_num=5, fix_sigma=None):
+    def gaussian_kernel(self,
+                        source: torch.Tensor, 
+                        target: torch.Tensor, 
+                        kernel_mul: Optional[float] = None, 
+                        kernel_num: Optional[int] = None, 
+                        fix_sigma: Optional[float] = None):
+        
         n_samples = int(source.size()[0]) + int(target.size()[0])
         total = torch.cat([source, target], dim=0)
+
+        if not kernel_mul:
+            kernel_mul = self.kernel_mul
+
+        if not kernel_num:
+            kernel_num = self.kernel_num
+
+        if not fix_sigma:
+            fix_sigma = self.fix_sigma
         
         # 1. Compute L2 distance matrix (Equivalent to c_f.LpDistance)
         total0 = total.unsqueeze(0).expand(int(total.size(0)), int(total.size(0)), int(total.size(1)))
@@ -36,13 +53,13 @@ class MMDLoss(nn.Module):
         kernel_val = [torch.exp(-L2_distance / bandwidth_temp) for bandwidth_temp in bandwidth_list]
         return sum(kernel_val)
 
-    def forward(self, source, target):
+    def forward(self, source: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         if source.size(0) == 0 or target.size(0) == 0:
             return torch.tensor(0.0, device=source.device)
 
         batch_size_source = int(source.size()[0])
         
-        kernels = self.gaussian_kernel(source, target, kernel_mul=self.kernel_mul, kernel_num=self.kernel_num, fix_sigma=self.fix_sigma)
+        kernels = self.gaussian_kernel(source, target)
         
         # Break kernel matrix into blocks: XX, YY, XY, YX
         XX = kernels[:batch_size_source, :batch_size_source]
@@ -55,13 +72,13 @@ class MMDLoss(nn.Module):
         return loss
 
 class MMDMethod(BaseMethod):
-    def __init__(self, config):
+    def __init__(self, config: ExperimentConfig):
         super().__init__(config)
         self.mmd_loss = MMDLoss()
         # Default lambda is 1.0 if not specified in config
         self.lambda_val = getattr(config, 'mmd_lambda', 1.0)
 
-    def get_model_components(self, num_features: int):
+    def get_model_components(self, num_features: int) -> tuple[nn.Module, Optional[nn.Module]]:
         """
         Returns the Classifier and an Identity Projection.
         We use Identity because MMD must be applied to the same features 
@@ -78,27 +95,29 @@ class MMDMethod(BaseMethod):
         
         return clf, proj
 
-    def compute_loss(self, model_output, targets, extra_info=None):
+    def compute_loss(self, 
+                     model_output: tuple[torch.Tensor, Optional[torch.Tensor]], 
+                     targets: torch.Tensor, 
+                     extra_info: Optional[dict] = None
+                     ) -> torch.Tensor:
         """
         Calculates Total Loss = BCE + Lambda * MMD
         Uses 'extra_info' to access the Drain labels.
         """
-        logits, features = model_output
+        assert extra_info is not None and 'drain' in extra_info.keys()
         
+        logits, features = model_output
+        assert features is not None
+
         # 1. Classification Loss (Standard)
         bce_loss = self.bce(logits.view(-1), targets.float())
         
         # 2. MMD Loss (Domain Alignment)
-        mmd_val = torch.tensor(0.0, device=logits.device)
+        # Split features: Domain 0 (No Drain) vs Domain 1 (Drain)
+        features_no_drain = features[extra_info['drain'] == 0]
+        features_drain = features[extra_info['drain'] == 1]
         
-        if extra_info and 'drain' in extra_info:
-            drain = extra_info['drain']
-            
-            # Split features: Domain 0 (No Drain) vs Domain 1 (Drain)
-            features_no_drain = features[drain == 0]
-            features_drain = features[drain == 1]
-            
-            mmd_val = self.mmd_loss(features_no_drain, features_drain)
+        mmd_val = self.mmd_loss(features_no_drain, features_drain)
 
         total_loss = bce_loss + (self.lambda_val * mmd_val)
         

@@ -8,9 +8,7 @@ import datetime
 
 import torch
 import torch.optim as optim
-from torch.utils.data import WeightedRandomSampler, DataLoader
 from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
-from torcheval.metrics import BinaryAUROC
 import wandb
 import optuna
 
@@ -18,10 +16,10 @@ import optuna
 from config import ExperimentConfig
 from model import CXP_Model
 import methods
-from utils import run_training_phase, get_dataloaders, run_final_eval, run_testing_phase
+from utils import run_training_phase, get_dataloaders, run_final_eval
 
 # Global args placeholder to be populated in main
-GLOBAL_ARGS = None
+GLOBAL_ARGS: argparse.Namespace = argparse.Namespace()
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
@@ -79,9 +77,6 @@ def objective(trial):
         config.num_workers = 0 
         
         # Fixed params for debug
-        #config.lr = trial.suggest_categorical("lr", [0.001])
-        #config.weight_decay = trial.suggest_categorical("weight_decay", [0.001])
-        #config.ema_decay = trial.suggest_categorical("ema_decay", [0.99])
 
         if config.method_name == "supcon":
             config.supcon_lambda = 0.5
@@ -98,9 +93,6 @@ def objective(trial):
             
     else:
         # Optimizable Hyperparameters
-        #config.lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
-        #config.weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
-        #config.ema_decay = trial.suggest_float("ema_decay", 0.9, 0.999)
         
         if config.method_name == "supcon":
             config.supcon_lambda = trial.suggest_float("supcon_lambda", 0.01, 50.0)
@@ -134,7 +126,7 @@ def objective(trial):
     device = config.device
     
     # Get Data
-    train_loader, val_loader, test_loader_aligned, test_loader_misaligned, n_train, n_val = get_dataloaders(config, debug=GLOBAL_ARGS.debug)
+    train_loader, val_loader, _, _ = get_dataloaders(config, debug=GLOBAL_ARGS.debug)
     
     # Get Method Strategy (Standard or SupCon)
     method = methods.get_method(config.method_name, config)
@@ -148,13 +140,9 @@ def objective(trial):
     # Init Optimizer
     #optimizer = optim.AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     optimizer = optim.AdamW([
-        {'params': model.encoder.parameters(), 'lr': 2e-5},
-        {'params': model.clf.parameters(), 'lr': 1e-4}
-    ], weight_decay=0.005)
-
-    # Metrics for Test Phase
-    test_auroc_aligned = BinaryAUROC()
-    test_auroc_misaligned = BinaryAUROC()
+        {'params': model.encoder.parameters(), 'lr': config.lr / 5},
+        {'params': model.clf.parameters(), 'lr': config.lr}
+    ], weight_decay=config.weight_decay)
 
     # Filename for this specific trial's checkpoint
     study_root = GLOBAL_ARGS.study_root
@@ -172,27 +160,7 @@ def objective(trial):
         train_loader=train_loader,
         val_loader=val_loader,
         trial=trial,
-        n_train=n_train,
-        n_val=n_val,
         chkpt_path=chkpt_path
-    )
-
-    # ====== TESTING =====================================================================
-
-    predictions_dir = study_root / "predictions"
-    predictions_dir.mkdir(exist_ok=True)
-
-    run_testing_phase(
-        config=config,
-        ema_model=ema_model,
-        method=method,
-        device=device,
-        test_loader_aligned=test_loader_aligned,
-        test_loader_misaligned=test_loader_misaligned,
-        chkpt_path=chkpt_path,
-        output_dir=predictions_dir,
-        run=run,
-        prefix=f"trial_{trial_str}"
     )
 
     run.finish()
@@ -242,8 +210,6 @@ if __name__ == '__main__':
     if args.study_name is None:
         args.study_name = coolname.generate_slug(2)
     
-    start_time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-
     # CREATE STUDY FOLDER
     folder_name = f"{args.study_name}"
     study_root = args.out_dir / folder_name
@@ -259,51 +225,64 @@ if __name__ == '__main__':
     # SETUP LOGGING
     setup_logging(study_root)
 
-    config_dict = vars(args)
-    config_dict["start_time"] = start_time_str
-    
-    with open(study_root / "experiment_config.json", "w") as f:
-        json.dump(config_dict, f, indent=4, default=str)
-    
-    logging.info(f"Starting Study: {args.study_name}")
-    logging.info(f"Device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
+    if args.n_trials == 0:
+        optimize = False
+        logging.info("Not running hyperparam opt because n_trials == 0. Using default params.")
+    elif args.method == 'standard':
+        optimize = False
+        logging.info("Not running hyperparam opt because method == 'standard'. Using default params.")
+    else:
+        optimize = True
 
-    # Define Optimization Direction
-    direction = "maximize" if args.select_chkpt_on.upper() == 'AUROC' else "minimize"
-    
-    # Hyperband Pruner to stop bad trials early
-    pruner = optuna.pruners.HyperbandPruner(min_resource=3, max_resource=30, reduction_factor=3)
-    
-    # Create Study with SQLite storage for persistence
-    #storage_url = f"sqlite:///{study_root}/optuna_study.db"
-    study = optuna.create_study(
-        direction=direction, 
-        study_name=args.study_name,
-        pruner=pruner,
-        #storage=storage_url,
-        load_if_exists=True
-    )
-    
-    # ========================== RUN OPTIMIZATION ===============================================
+    if optimize:
+        start_time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-    study.optimize(objective, n_trials=args.n_trials)
+        config_dict = vars(args)
+        config_dict["start_time"] = start_time_str
+        
+        with open(study_root / "experiment_config.json", "w") as f:
+            json.dump(config_dict, f, indent=4, default=str)
+        
+        logging.info(f"Starting Study: {args.study_name}")
+        logging.info(f"Device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
 
-    # ===========================================================================================
-    
-    logging.info("===== STUDY COMPLETED =====")
-    logging.info(f"Best Trial Number: {study.best_trial.number}")
-    logging.info(f"Best Value ({args.select_chkpt_on}): {study.best_trial.value}")
-    logging.info("Best Params:")
-    for k, v in study.best_trial.params.items():
-        logging.info(f"  {k}: {v}")
+        # Define Optimization Direction
+        direction = "maximize" if args.select_chkpt_on.upper() == 'AUROC' else "minimize"
+        
+        # Hyperband Pruner to stop bad trials early
+        pruner = optuna.pruners.HyperbandPruner(min_resource=3, max_resource=30, reduction_factor=3)
+        
+        # Create Study with SQLite storage for persistence
+        #storage_url = f"sqlite:///{study_root}/optuna_study.db"
+        study = optuna.create_study(
+            direction=direction, 
+            study_name=args.study_name,
+            pruner=pruner,
+            #storage=storage_url,
+            load_if_exists=True
+        )
+        
+        # ========================== RUN OPTIMIZATION ===============================================
+
+        study.optimize(objective, n_trials=args.n_trials)
+        best_params = study.best_trial.params.items()
+        # ===========================================================================================
+        
+        logging.info("===== STUDY COMPLETED =====")
+        logging.info(f"Best Trial Number: {study.best_trial.number}")
+        logging.info(f"Best Value ({args.select_chkpt_on}): {study.best_trial.value}")
+        logging.info("Best Params:")
+        for k, v in best_params:
+            logging.info(f"  {k}: {v}")
         
     # ========================== FINAL EVALUATION RUNS ==========================================
 
     if args.n_eval_runs > 0:
-        logging.info(f"Starting {args.n_eval_runs} Final Evaluation Runs with Best Hyperparameters...")
+        if optimize:
+            logging.info(f"Starting {args.n_eval_runs} final evaluation runs with best hyperparameters...")
+        else:
+            logging.info(f"Starting {args.n_eval_runs} final evaluation runs with default hyperparameters...")
         
-        # Construct Final Config
-        best_params = study.best_trial.params
         final_config = ExperimentConfig()
         
         # Base settings
@@ -315,10 +294,11 @@ if __name__ == '__main__':
         final_config.select_chkpt_on = args.select_chkpt_on
         final_config.epochs = 2 if args.debug else final_config.epochs
         
-        # Apply Best Params
-        for k, v in best_params.items():
-            if hasattr(final_config, k):
-                setattr(final_config, k, v)
+        if optimize:
+            # Apply Best Params
+            for k, v in best_params:
+                if hasattr(final_config, k):
+                    setattr(final_config, k, v)
 
         # Apply Debug Overrides to Final Config
         if args.debug:

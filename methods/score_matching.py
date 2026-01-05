@@ -1,15 +1,17 @@
 import torch
 import torch.nn as nn
+from typing import Optional
 from .base import BaseMethod
+from ..config import ExperimentConfig
 
 
 class ScoreMatchingLoss(nn.Module):
 
-    def __init__(self, min_subgroup_count=1):
+    def __init__(self, min_subgroup_count: int = 1):
         super(ScoreMatchingLoss, self).__init__()
         self.min_subgroup_count = min_subgroup_count
 
-    def forward(self, probs, labels, groups):
+    def forward(self, probs: torch.Tensor, labels: torch.Tensor, groups: torch.Tensor) -> torch.Tensor:
         """
         Penalizes variance in average predicted scores across groups, separately
         for positive and negative class samples.
@@ -127,7 +129,7 @@ class ScoreMatchingLoss(nn.Module):
 
 
 class ScoreMatchingMethod(BaseMethod):
-    def __init__(self, config):
+    def __init__(self, config: ExperimentConfig):
         super().__init__(config)
         self.score_matching_loss = ScoreMatchingLoss(
             min_subgroup_count=getattr(config, 'score_matching_min_subgroup_count', 1))
@@ -135,7 +137,7 @@ class ScoreMatchingMethod(BaseMethod):
         # Default lambda is 1.0 if not specified in config
         self.lambda_val = getattr(config, 'score_matching_lambda', 1.0)
 
-    def get_model_components(self, num_features: int):
+    def get_model_components(self, num_features: int) -> tuple[nn.Module, Optional[nn.Module]]:
         # Score matching only needs a classification head.
         clf = nn.Sequential(
             nn.Linear(num_features, 512),
@@ -145,17 +147,23 @@ class ScoreMatchingMethod(BaseMethod):
         # We return None for the projection head because we don't use it.
         return clf, None
 
-    def compute_loss(self, model_output, targets, extra_info=None):
+    def compute_loss(self, 
+                     model_output: tuple[torch.Tensor, Optional[torch.Tensor]], 
+                     targets, 
+                     extra_info: Optional[dict] = None
+                     ) -> torch.Tensor:
         """
         Calculates Total Loss = BCE + Lambda * ScoreMatchingLoss
         Uses 'extra_info' to access the Drain labels.
         """
+        assert extra_info is not None
+
         logits, _ = model_output
         
         # 1. Classification Loss (Standard)
         bce_loss = self.bce(logits.view(-1), targets.float())
         
-        # 2. MMD Loss (Domain Alignment)
+        # 2. Score matching loss
         score_matching_val = self.score_matching_loss(probs=torch.sigmoid(logits.view(-1)),
                                                       labels=targets,
                                                       groups=extra_info['drain'])

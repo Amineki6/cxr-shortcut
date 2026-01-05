@@ -41,7 +41,7 @@ class ExperimentConfig:
 
     # Method-Specific Params: Score Matching
     # (Only used if method_name == "score_matching")
-    score_matching_lambda: float = 1.0
+    score_matching_lambda: float = 10.0
     score_matching_min_subgroup_count: int = 3
 
     # -------------------------------------------------------------------------

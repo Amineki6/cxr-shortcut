@@ -4,14 +4,18 @@ import torch
 import pandas as pd
 import torchvision
 import torchvision.transforms.v2 as transforms
-from torch.utils.data import Dataset
+from pathlib import Path
 
 def grayscale_to_rgb(i):
     return torch.cat([i, i, i], dim=0) if i.shape[0] == 1 else i
 
+
 class CXP_dataset(torchvision.datasets.VisionDataset):
 
-    def __init__(self, root_dir, csv_file, augment=True, inference_only=False) -> None:
+    def __init__(self, root_dir: str, 
+                 csv_file: Path | str, 
+                 augment: bool = True, 
+                 ) -> None:
 
         if augment:
             transform = transforms.Compose([
@@ -59,7 +63,7 @@ class CXP_dataset(torchvision.datasets.VisionDataset):
         self.labels = df.Pneumothorax.astype(int)
         self.drain = df.Drain.astype(int)
 
-    def __getitem__(self, index: int):
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, int, int]:
         try:
             img = torchvision.io.read_image(os.path.join(self.root_dir, self.path[index]))
             img = self.transform(img)
