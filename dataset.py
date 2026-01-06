@@ -88,14 +88,14 @@ class CXP_dataset(torchvision.datasets.VisionDataset):
 
         self.return_weights = return_weights
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, int, int]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, int, int] | tuple[torch.Tensor, int, int, float]:
         try:
             img = torchvision.io.read_image(os.path.join(self.root_dir, self.path[index]))
             img = self.transform(img)
             if self.return_weights:
                 return img, self.labels[index], self.drain[index], self.weights[index]
             else:
-                eturn img, self.labels[index], self.drain[index]
+                return img, self.labels[index], self.drain[index]
         except RuntimeError as e:
             logging.error(f"Error loading image at index {index}: {self.path[index]}")
             logging.error(f"Error message: {e}")
