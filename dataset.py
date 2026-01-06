@@ -2,6 +2,7 @@ import os
 import logging
 import torch
 import pandas as pd
+import numpy as np
 import torchvision
 import torchvision.transforms.v2 as transforms
 from pathlib import Path
@@ -15,6 +16,7 @@ class CXP_dataset(torchvision.datasets.VisionDataset):
     def __init__(self, root_dir: str, 
                  csv_file: Path | str, 
                  augment: bool = True, 
+                 return_weights: bool = False
                  ) -> None:
 
         if augment:
@@ -63,11 +65,37 @@ class CXP_dataset(torchvision.datasets.VisionDataset):
         self.labels = df.Pneumothorax.astype(int)
         self.drain = df.Drain.astype(int)
 
+        if return_weights:
+            # Compute sample weights
+            # We use effective number of samples balancing as per
+            # https://openaccess.thecvf.com/content_CVPR_2019/html/Cui_Class-Balanced_Loss_Based_on_Effective_Number_of_Samples_CVPR_2019_paper.html
+
+            # Combine labels and drain into group identifiers
+            groups = self.labels * 2 + self.drain  # Creates groups: 0, 1, 2, 3
+
+            # Count samples per group
+            counts = np.bincount(groups, minlength=4)
+
+            # Effective number of samples
+            beta = 0.99
+            effective_num = (1 - beta ** counts) / (1 - beta)
+
+            # Per-class weights (inverse of effective number)
+            class_weights = 1.0 / effective_num
+
+            # Per-sample weights
+            self.weights = class_weights[groups]            
+
+        self.return_weights = return_weights
+
     def __getitem__(self, index: int) -> tuple[torch.Tensor, int, int]:
         try:
             img = torchvision.io.read_image(os.path.join(self.root_dir, self.path[index]))
             img = self.transform(img)
-            return img, self.labels[index], self.drain[index]
+            if self.return_weights:
+                return img, self.labels[index], self.drain[index], self.weights[index]
+            else:
+                eturn img, self.labels[index], self.drain[index]
         except RuntimeError as e:
             logging.error(f"Error loading image at index {index}: {self.path[index]}")
             logging.error(f"Error message: {e}")
