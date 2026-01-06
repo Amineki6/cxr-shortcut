@@ -23,12 +23,11 @@ def run_training_phase(
     optimizer, 
     method, 
     train_loader, 
-    val_loader, 
-    trial,
+    val_loader,
+    trial_number: int,
     chkpt_path,
     num_epochs: Optional[int] = None,      # Allow overriding config.epochs (crucial for JTT Stage 1)
     wandb_prefix: str = "",      # Allow prefixing logs (e.g., "stage1/")
-    allow_pruning: bool = True    # JTT Stage 1 usually shouldn't prune the whole trial
 ):
     device = config.device
     epochs_to_run = num_epochs if num_epochs is not None else config.epochs
@@ -65,7 +64,7 @@ def run_training_phase(
         train_brier_sum = 0.0
         train_auroc.reset()
         
-        for batch in tqdm(train_loader, desc=f"Trial {trial.number} {wandb_prefix} Ep {epoch}", leave=False):
+        for batch in tqdm(train_loader, desc=f"Trial {trial_number} {wandb_prefix} Ep {epoch}", leave=False):
 
             if config.method_name == "jtt":
                 assert len(batch) == 4
@@ -156,7 +155,7 @@ def run_training_phase(
         epoch_val_brier = val_brier_sum / len(val_loader.dataset)
 
         # Logging
-        logging.info(f"{wandb_prefix}Trial {trial.number} Ep [{epoch+1}/{epochs_to_run}] "
+        logging.info(f"{wandb_prefix}Trial {trial_number} Ep [{epoch+1}/{epochs_to_run}] "
                      f"Train Loss: {epoch_train_loss:.4f} AUROC: {epoch_train_auroc:.4f} "
                      f"Val Loss: {epoch_val_loss:.4f} AUROC: {epoch_val_auroc:.4f}")
 
@@ -193,15 +192,8 @@ def run_training_phase(
                 'val_auroc': epoch_val_auroc
             }, chkpt_path)
 
-        # Optuna Pruning
-        if allow_pruning:
-            target_metric = epoch_val_auroc if config.select_chkpt_on.upper() == "AUROC" else epoch_val_loss
-            trial.report(target_metric, epoch)
-            if trial.should_prune():
-                logging.info(f"Pruning trial {trial.number} at epoch {epoch}")
-                raise optuna.exceptions.TrialPruned()
-
     return final_best_metric
+
 
 def run_testing_phase(
     ema_model,
@@ -322,25 +314,6 @@ def run_testing_phase(
     logging.info(f"Test Misaligned - Loss: {test_loss_misaligned:.4f} AUROC: {test_auroc_misaligned.compute():.4f}")
 
 
-class DummyTrial:
-    """Mock Optuna Trial for Final Evaluation Runs"""
-    def __init__(self, number=0):
-        self.number = number
-        self.params = {}
-    
-    def report(self, metric, step):
-        pass
-    
-    def should_prune(self):
-        return False
-    
-    def suggest_float(self, name, low, high, log=False):
-        return self.params.get(name, low)
-
-    def suggest_categorical(self, name, choices):
-        return self.params.get(name, choices[0])
-
-
 def get_dataloaders(config: ExperimentConfig, debug=False):
     # Determine CSV filenames based on config
     if config.balance_val:
@@ -435,7 +408,6 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
 
     # 2. Setup Components
     device = config.device
-    trial = DummyTrial(trial_number)
     
     # Get Data
     train_loader, val_loader, test_loader_aligned, test_loader_misaligned = get_dataloaders(config, debug=(config.num_workers == 0 and config.epochs == 2)) 
@@ -464,10 +436,9 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
         method=method,
         train_loader=train_loader,
         val_loader=val_loader,
-        trial=trial,
+        trial_number=trial_number,
         chkpt_path=chkpt_path,
-        wandb_prefix="",
-        allow_pruning=False 
+        wandb_prefix=""
     )
 
     # 4. Run Testing

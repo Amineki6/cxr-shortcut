@@ -159,7 +159,7 @@ def objective(trial):
         method=method,
         train_loader=train_loader,
         val_loader=val_loader,
-        trial=trial,
+        trial_number=trial.number,
         chkpt_path=chkpt_path
     )
 
@@ -249,18 +249,10 @@ if __name__ == '__main__':
         # Define Optimization Direction
         direction = "maximize" if args.select_chkpt_on.upper() == 'AUROC' else "minimize"
         
-        # Hyperband Pruner to stop bad trials early
-        # This is recommended with TPE (default sampler) but not so much with GP, as far as I can tell.
-        #pruner = optuna.pruners.HyperbandPruner(min_resource=3, max_resource=30, reduction_factor=3)
-        
-        # Create Study with SQLite storage for persistence
-        #storage_url = f"sqlite:///{study_root}/optuna_study.db"
         study = optuna.create_study(
             sampler=optuna.samplers.GPSampler(),
             direction=direction, 
             study_name=args.study_name,
-            #pruner=pruner,
-            #storage=storage_url,
             load_if_exists=True
         )
         
