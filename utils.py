@@ -138,7 +138,8 @@ def run_training_phase(
                 val_bce_sum += components["bce"] * batch_size
                 val_wbce_sum += binary_cross_entropy_with_logits(logits.view(-1),
                                                                  labels.float(),
-                                                                 weight=sample_weights)
+                                                                 weight=sample_weights,
+                                                                 reduction="sum")
                 
                 flat_logits = logits.reshape(-1)
                 val_auroc.update(flat_logits, labels)
