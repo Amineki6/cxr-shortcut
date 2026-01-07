@@ -44,6 +44,11 @@ class ExperimentConfig:
     score_matching_lambda: float = 10.0
     score_matching_min_subgroup_count: int = 3
 
+    # Method-Specific Params: JTT
+    # (Only used if method_name == "jtt")
+    jtt_duration: int = 1   # Number of epochs for identification phase
+    jtt_lambda: float = 4.0 # Upweighting factor for error set
+
     # -------------------------------------------------------------------------
     # 3. Data & Checkpointing
     # -------------------------------------------------------------------------

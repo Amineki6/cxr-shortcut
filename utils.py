@@ -7,6 +7,7 @@ import pandas as pd
 import torch.optim as optim
 from torch.utils.data import WeightedRandomSampler, DataLoader
 from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
+import numpy as np
 from typing import Optional
 from torch.nn.functional import binary_cross_entropy_with_logits
 
@@ -32,8 +33,14 @@ def run_training_phase(
     device = config.device
     epochs_to_run = num_epochs if num_epochs is not None else config.epochs
     
-    model_compiled = torch.compile(model, fullgraph=True, mode="reduce-overhead")
-    ema_model_compiled = torch.compile(ema_model, fullgraph=True, mode="reduce-overhead")
+    
+    # Only compile on CUDA
+    if "cuda" in str(device):
+        model_compiled = torch.compile(model, fullgraph=True, mode="reduce-overhead")
+        ema_model_compiled = torch.compile(ema_model, fullgraph=True, mode="reduce-overhead")
+    else:
+        model_compiled = model
+        ema_model_compiled = ema_model
 
     # Initialize Metrics
     train_auroc = BinaryAUROC()
@@ -68,8 +75,14 @@ def run_training_phase(
         for batch in tqdm(train_loader, desc=f"Trial {trial_number} {wandb_prefix} Ep {epoch}", leave=False):
 
             if config.method_name == "jtt":
-                assert len(batch) == 4
-                inputs, labels, weights, drain = batch
+                if len(batch) == 4:
+                    inputs, labels, weights, drain = batch
+                elif len(batch) == 3:
+                     # Stage 1: Standard ERM, no weights yet
+                    inputs, labels, drain = batch
+                    weights = None
+                else:
+                     raise ValueError(f"Unexpected JTT batch size: {len(batch)}")
             else:
                 assert len(batch) == 3
                 inputs, labels, drain = batch
@@ -482,3 +495,69 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
 
     run.finish()
     logging.info(f"--- Finished Final Eval Run {trial_number} ---")
+
+def identify_error_set(model, method, loader, device, max_batches=None):
+    """
+    Evaluates the model on the loader and returns indices of misclassified examples.
+    Used for JTT Stage 1.
+    """
+    model.eval()
+    error_indices = []
+    
+    current_idx = 0
+    with torch.no_grad():
+        for i, batch in enumerate(tqdm(loader, desc="Identifying Error Set", leave=False)):
+            if max_batches is not None and i >= max_batches:
+                break
+                
+            inputs = batch[0].to(device)
+            labels = batch[1].to(device)
+            
+            # Forward pass
+            model_output = model(inputs)
+            logits = model_output[0]
+            preds = (torch.sigmoid(logits) > 0.5).float()
+            
+            # Identify mismatches
+            mismatches = (preds.view(-1) != labels.view(-1)).cpu().numpy()
+            
+            # Map batch-relative indices to global indices
+            batch_size = inputs.size(0)
+            batch_indices = np.arange(current_idx, current_idx + batch_size)
+            
+            # Add misclassified global indices to list
+            error_indices.extend(batch_indices[mismatches])
+            
+            current_idx += batch_size
+
+    return set(error_indices)
+
+def get_jtt_loader(dataset, error_indices, config):
+    """
+    Creates a DataLoader with upweighted error set examples.
+    """
+    # Create weights: JTT_lambda for error set, 1.0 for others
+    weights = torch.ones(len(dataset))
+    
+    # Check if we have error indices
+    if not error_indices:
+        logging.warning("No errors found in identification stage! Returning standard loader.")
+        return DataLoader(
+            dataset, batch_size=config.batch_size, shuffle=True, 
+            num_workers=config.num_workers, pin_memory=True
+        )
+
+    for idx in error_indices:
+        weights[idx] = config.jtt_lambda
+        
+    sampler = WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
+    
+    loader = DataLoader(
+        dataset, 
+        batch_size=config.batch_size, 
+        sampler=sampler, 
+        num_workers=config.num_workers, 
+        pin_memory=True
+    )
+    
+    return loader
