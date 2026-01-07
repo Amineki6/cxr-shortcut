@@ -16,7 +16,7 @@ import optuna
 from config import ExperimentConfig
 from model import CXP_Model
 import methods
-from utils import run_training_phase, get_dataloaders, run_final_eval
+from utils import run_training_phase, get_dataloaders, run_final_eval, identify_error_set, get_jtt_loader
 
 # Global args placeholder to be populated in main
 GLOBAL_ARGS: argparse.Namespace = argparse.Namespace()
@@ -54,6 +54,7 @@ def setup_logging(root_dir):
 
 def objective(trial):
     # ====== CONFIG ========================================================================
+    study_root = GLOBAL_ARGS.study_root
 
     # Populate Config from Optuna Trial
     config = ExperimentConfig()
@@ -88,6 +89,9 @@ def objective(trial):
             config.cdan_entropy = True
         elif config.method_name == "score_matching":
             config.score_matching_lambda = 1.0
+        elif config.method_name == "jtt":
+            config.jtt_duration = 1
+            config.jtt_lambda = 4.0
         else:
             assert config.method_name == "standard"
             
@@ -104,6 +108,9 @@ def objective(trial):
             config.cdan_entropy = True 
         elif config.method_name == "score_matching":
             config.score_matching_lambda = trial.suggest_float("score_matching_lambda", 0.01, 50.0)
+        elif config.method_name == "jtt":
+            config.jtt_duration = trial.suggest_int("jtt_duration", 1, max(1, config.epochs // 2))
+            config.jtt_lambda = trial.suggest_float("jtt_lambda", 2.0, 100.0, log=True)
         else:
             assert config.method_name == "standard"
 
@@ -130,6 +137,57 @@ def objective(trial):
     
     # Get Method Strategy (Standard or SupCon)
     method = methods.get_method(config.method_name, config)
+
+    # --- JTT STAGE 1 LOGIC ---
+    if config.method_name == "jtt":
+        logging.info("--- JTT Stage 1: Identification Phase ---")
+        
+        # 1. Initialize Identification Model
+        model_1 = CXP_Model(method).to(device)
+        ema_model_1 = AveragedModel(model_1, multi_avg_fn=get_ema_multi_avg_fn(config.ema_decay), use_buffers=True)
+        optimizer_1 = optim.AdamW(model_1.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+        
+        # 2. Train Identification Model
+        stage1_chkpt = study_root / "checkpoints" / f"trial_{trial.number}_jtt_stage1.chkpt"
+        
+        run_training_phase(
+            config=config,
+            model=model_1,
+            ema_model=ema_model_1,
+            optimizer=optimizer_1,
+            method=method,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            trial=trial, # We still pass trial for logging, but we disable pruning
+            chkpt_path=stage1_chkpt,
+            num_epochs=config.jtt_duration,
+            wandb_prefix="jtt_stage1/",
+            allow_pruning=False
+        )
+        
+        # 3. Identify Error Set
+        # Create a sequential (non-shuffled) loader for correct index mapping
+        id_loader = torch.utils.data.DataLoader(
+            train_loader.dataset,
+            batch_size=config.batch_size,
+            shuffle=False, # CRITICAL: Must be False to match indices
+            num_workers=config.num_workers,
+            pin_memory=True
+        )
+        
+        error_indices = identify_error_set(model_1, method, id_loader, device)
+        n_train_len = len(train_loader.dataset)
+        logging.info(f"JTT Stage 1 Complete. Found {len(error_indices)} errors out of {n_train_len} examples.")
+        
+        # 4. Create JTT Stage 2 Loader
+        # This overwrites the original train_loader for the main training loop below
+        train_loader = get_jtt_loader(train_loader.dataset, error_indices, config)
+        
+        logging.info("--- JTT Stage 2: Upweighted Training Phase ---")
+        
+        # Clean up Stage 1 artifacts to free memory
+        del model_1, ema_model_1, optimizer_1, id_loader
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
     
     # Init Model
     model = CXP_Model(method).to(device)
@@ -145,7 +203,6 @@ def objective(trial):
     ], weight_decay=config.weight_decay)
 
     # Filename for this specific trial's checkpoint
-    study_root = GLOBAL_ARGS.study_root
     trial_str = str(trial.number).zfill(3)
     chkpt_path = study_root / "checkpoints" / f'trial_{trial_str}_best.chkpt'
 
@@ -202,7 +259,7 @@ if __name__ == '__main__':
     
     # Methods
     parser.add_argument('--method', type=str, default='standard',
-                       choices=['standard', 'supcon', 'mmd', 'cdan', 'score_matching'],
+                       choices=['standard', 'supcon', 'mmd', 'cdan', 'score_matching', 'jtt'],
                        help='Method to use for training (default: standard)')
 
     args = parser.parse_args()

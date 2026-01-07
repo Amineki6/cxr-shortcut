@@ -3,6 +3,7 @@ from .supcon import SupConMethod
 from .mmd import MMDMethod
 from .cdan import CDANMethod
 from .score_matching import ScoreMatchingMethod
+from .jtt import JTTMethod
 
 def get_method(method_name, config):
     """Factory function to initialize the correct strategy."""
@@ -16,5 +17,7 @@ def get_method(method_name, config):
         return CDANMethod(config)
     elif method_name == 'score_matching':
         return ScoreMatchingMethod(config)
+    elif method_name == 'jtt':
+        return JTTMethod(config)
     else:
         raise ValueError(f"Method '{method_name}' not implemented.")
