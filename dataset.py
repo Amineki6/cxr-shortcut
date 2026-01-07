@@ -85,6 +85,20 @@ class CXP_dataset(torchvision.datasets.VisionDataset):
 
             # Per-sample weights
             self.weights = class_weights[groups]            
+            
+            # Normalize for easier comparison with BCE
+            self.weights = self.weights / self.weights.sum() * len(self.weights)
+            assert self.weights.sum() == len(self.weights)
+            logging.info(f'Sample weights @ beta=0.99 are {self.weights.unique()}.')
+
+            # Second version with higher beta = stronger reweighting, closer to naive class weighting
+            beta = 0.9999
+            effective_num = (1 - beta ** counts) / (1 - beta)
+            class_weights = 1.0 / effective_num
+            self.weights2 = class_weights[groups]   
+            self.weights2 = self.weights2 / self.weights2.sum() * len(self.weights2) 
+            assert self.weights2.sum() == len(self.weights2)
+            logging.info(f'Sample weights @ beta=0.9999 are {self.weights2.unique()}.')
 
         self.return_weights = return_weights
 
@@ -93,7 +107,7 @@ class CXP_dataset(torchvision.datasets.VisionDataset):
             img = torchvision.io.read_image(os.path.join(self.root_dir, self.path[index]))
             img = self.transform(img)
             if self.return_weights:
-                return img, self.labels[index], self.drain[index], self.weights[index]
+                return img, self.labels[index], self.drain[index], self.weights[index], self.weights2[index]
             else:
                 return img, self.labels[index], self.drain[index]
         except RuntimeError as e:
