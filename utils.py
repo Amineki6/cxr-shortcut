@@ -2,7 +2,6 @@ from tqdm import tqdm
 import torch
 from torcheval.metrics import BinaryAUROC
 import wandb
-import optuna
 import logging
 import pandas as pd
 import torch.optim as optim
@@ -10,6 +9,7 @@ from torch.utils.data import WeightedRandomSampler, DataLoader
 from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 import numpy as np
 from typing import Optional
+from torch.nn.functional import binary_cross_entropy_with_logits
 
 from config import ExperimentConfig
 from dataset import CXP_dataset
@@ -24,12 +24,11 @@ def run_training_phase(
     optimizer, 
     method, 
     train_loader, 
-    val_loader, 
-    trial,
+    val_loader,
+    trial_number: int,
     chkpt_path,
     num_epochs: Optional[int] = None,      # Allow overriding config.epochs (crucial for JTT Stage 1)
     wandb_prefix: str = "",      # Allow prefixing logs (e.g., "stage1/")
-    allow_pruning: bool = True    # JTT Stage 1 usually shouldn't prune the whole trial
 ):
     device = config.device
     epochs_to_run = num_epochs if num_epochs is not None else config.epochs
@@ -44,14 +43,15 @@ def run_training_phase(
         ema_model_compiled = ema_model
 
     # Initialize Metrics
-    train_auroc = BinaryAUROC()
-    val_auroc = BinaryAUROC()
+    train_auroc = BinaryAUROC(device=device)
+    val_auroc = BinaryAUROC(device=device)
+    val_wauroc = BinaryAUROC(device=device)
+    val_wauroc2 = BinaryAUROC(device=device)
 
-    best_val_bce = float('inf')
-    best_val_auroc = 0.0
-
-    # To handle the return value
-    final_best_metric = None
+    if config.select_chkpt_on.upper() == "AUROC":
+        best_metric_val = 0.0
+    else:
+        best_metric_val = float('inf')
 
     # Freeze backbone for first few epochs, only train clf head for now
     for param in model_compiled.encoder.parameters():
@@ -72,7 +72,7 @@ def run_training_phase(
         train_brier_sum = 0.0
         train_auroc.reset()
         
-        for batch in tqdm(train_loader, desc=f"Trial {trial.number} {wandb_prefix} Ep {epoch}", leave=False):
+        for batch in tqdm(train_loader, desc=f"Trial {trial_number} {wandb_prefix} Ep {epoch}", leave=False):
 
             if config.method_name == "jtt":
                 if len(batch) == 4:
@@ -131,8 +131,12 @@ def run_training_phase(
         ema_model_compiled.eval()
         val_loss_sum = 0.0
         val_bce_sum = 0.0
+        val_wbce_sum = 0.0
+        val_wbce2_sum = 0.0
         val_brier_sum = 0.0
         val_auroc.reset()
+        val_wauroc.reset()
+        val_wauroc2.reset()
         
         with torch.no_grad():
             for batch in val_loader:
@@ -140,9 +144,10 @@ def run_training_phase(
                 labels = batch[1].to(device, non_blocking=True)
                 
                 extra_info = {}
-                if len(batch) >= 3:
-                     drain = batch[2].to(device, non_blocking=True)
-                     extra_info["drain"] = drain
+                drain = batch[2].to(device, non_blocking=True)
+                extra_info["drain"] = drain
+                sample_weights = batch[3].to(device, non_blocking=True)
+                sample_weights2 = batch[4].to(device, non_blocking=True)
 
                 logits, projections = ema_model_compiled(inputs)
                 loss, components = method.compute_loss((logits, projections), labels, extra_info=extra_info)
@@ -150,9 +155,19 @@ def run_training_phase(
                 batch_size = inputs.size(0)
                 val_loss_sum += loss.item() * batch_size
                 val_bce_sum += components["bce"] * batch_size
+                val_wbce_sum += binary_cross_entropy_with_logits(logits.view(-1),
+                                                                 labels.float(),
+                                                                 weight=sample_weights,
+                                                                 reduction="sum")
+                val_wbce2_sum += binary_cross_entropy_with_logits(logits.view(-1),
+                                                                 labels.float(),
+                                                                 weight=sample_weights2,
+                                                                 reduction="sum")                
                 
                 flat_logits = logits.reshape(-1)
                 val_auroc.update(flat_logits, labels)
+                val_wauroc.update(flat_logits, labels, weight=sample_weights)
+                val_wauroc2.update(flat_logits, labels, weight=sample_weights2)
                 
                 probs = torch.sigmoid(flat_logits)
                 brier = ((probs - labels.float()) ** 2).sum().item()
@@ -163,15 +178,20 @@ def run_training_phase(
         epoch_val_loss = val_loss_sum / len(val_loader.dataset)
         epoch_train_bce = train_bce_sum / len(train_loader.dataset)
         epoch_val_bce = val_bce_sum / len(val_loader.dataset)
+        epoch_val_wbce = val_wbce_sum / len(val_loader.dataset)
+        epoch_val_wbce2 = val_wbce2_sum / len(val_loader.dataset)
         epoch_train_auroc = train_auroc.compute().item()
         epoch_val_auroc = val_auroc.compute().item()
+        epoch_val_wauroc = val_wauroc.compute().item()
+        epoch_val_wauroc2 = val_wauroc2.compute().item()
         epoch_train_brier = train_brier_sum / len(train_loader.dataset)
         epoch_val_brier = val_brier_sum / len(val_loader.dataset)
 
         # Logging
-        logging.info(f"{wandb_prefix}Trial {trial.number} Ep [{epoch+1}/{epochs_to_run}] "
+        logging.info(f"{wandb_prefix}Trial {trial_number} Ep [{epoch+1}/{epochs_to_run}] "
                      f"Train Loss: {epoch_train_loss:.4f} AUROC: {epoch_train_auroc:.4f} "
-                     f"Val Loss: {epoch_val_loss:.4f} AUROC: {epoch_val_auroc:.4f}")
+                     f"Val Loss: {epoch_val_loss:.4f} AUROC: {epoch_val_auroc:.4f} "
+                     f"Val BCE: {epoch_val_bce:.4f} wBCE: {epoch_val_wbce:.4f} ")
 
         wandb.log({
             f"{wandb_prefix}epoch": epoch,
@@ -179,22 +199,27 @@ def run_training_phase(
             f"{wandb_prefix}Loss/val": epoch_val_loss,
             f"{wandb_prefix}BCE/train": epoch_train_bce,
             f"{wandb_prefix}BCE/val": epoch_val_bce,
+            f"{wandb_prefix}wBCE/val": epoch_val_wbce,
+            f"{wandb_prefix}wBCE2/val": epoch_val_wbce2,
             f"{wandb_prefix}auroc/train": epoch_train_auroc,
             f"{wandb_prefix}auroc/val": epoch_val_auroc,
+            f"{wandb_prefix}wauroc/val": epoch_val_wauroc,
+            f"{wandb_prefix}wauroc2/val": epoch_val_wauroc2,
             f"{wandb_prefix}brier/train": epoch_train_brier,
             f"{wandb_prefix}brier/val": epoch_val_brier
         })
 
         # Checkpointing
         save_chkpt = False
-        if config.select_chkpt_on.upper() == "AUROC" and epoch_val_auroc > best_val_auroc:
-            best_val_auroc = epoch_val_auroc
+        if config.select_chkpt_on.upper() == "AUROC" and epoch_val_auroc > best_metric_val:
+            best_metric_val = epoch_val_auroc
             save_chkpt = True
-            final_best_metric = best_val_auroc
-        elif config.select_chkpt_on.upper() == "BCE" and epoch_val_bce < best_val_bce:
-            best_val_bce = epoch_val_bce
+        elif config.select_chkpt_on.upper() == "BCE" and epoch_val_bce < best_metric_val:
+            best_metric_val = epoch_val_bce
             save_chkpt = True
-            final_best_metric = best_val_bce            
+        elif config.select_chkpt_on.upper() == "WBCE" and epoch_val_wbce < best_metric_val:
+            best_metric_val = epoch_val_wbce
+            save_chkpt = True
             
         if save_chkpt:
             torch.save({
@@ -206,15 +231,8 @@ def run_training_phase(
                 'val_auroc': epoch_val_auroc
             }, chkpt_path)
 
-        # Optuna Pruning
-        if allow_pruning:
-            target_metric = epoch_val_auroc if config.select_chkpt_on.upper() == "AUROC" else epoch_val_loss
-            trial.report(target_metric, epoch)
-            if trial.should_prune():
-                logging.info(f"Pruning trial {trial.number} at epoch {epoch}")
-                raise optuna.exceptions.TrialPruned()
+    return best_metric_val
 
-    return final_best_metric
 
 def run_testing_phase(
     ema_model,
@@ -335,25 +353,6 @@ def run_testing_phase(
     logging.info(f"Test Misaligned - Loss: {test_loss_misaligned:.4f} AUROC: {test_auroc_misaligned.compute():.4f}")
 
 
-class DummyTrial:
-    """Mock Optuna Trial for Final Evaluation Runs"""
-    def __init__(self, number=0):
-        self.number = number
-        self.params = {}
-    
-    def report(self, metric, step):
-        pass
-    
-    def should_prune(self):
-        return False
-    
-    def suggest_float(self, name, low, high, log=False):
-        return self.params.get(name, low)
-
-    def suggest_categorical(self, name, choices):
-        return self.params.get(name, choices[0])
-
-
 def get_dataloaders(config: ExperimentConfig, debug=False):
     # Determine CSV filenames based on config
     if config.balance_val:
@@ -364,7 +363,7 @@ def get_dataloaders(config: ExperimentConfig, debug=False):
         val_csv = config.csv_dir / 'val_drain_shortcut.csv'
 
     train_data = CXP_dataset(config.data_dir, train_csv, augment=True)
-    val_data = CXP_dataset(config.data_dir, val_csv, augment=False)
+    val_data = CXP_dataset(config.data_dir, val_csv, augment=False, return_weights=True)
     
     test_data_aligned = CXP_dataset(config.data_dir, config.csv_dir / 'test_drain_shortcut_aligned.csv', augment=False)
     test_data_misaligned = CXP_dataset(config.data_dir, config.csv_dir / 'test_drain_shortcut_misaligned.csv', augment=False)
@@ -448,7 +447,6 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
 
     # 2. Setup Components
     device = config.device
-    trial = DummyTrial(trial_number)
     
     # Get Data
     train_loader, val_loader, test_loader_aligned, test_loader_misaligned = get_dataloaders(config, debug=(config.num_workers == 0 and config.epochs == 2)) 
@@ -477,10 +475,9 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
         method=method,
         train_loader=train_loader,
         val_loader=val_loader,
-        trial=trial,
+        trial_number=trial_number,
         chkpt_path=chkpt_path,
-        wandb_prefix="",
-        allow_pruning=False 
+        wandb_prefix=""
     )
 
     # 4. Run Testing

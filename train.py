@@ -216,7 +216,7 @@ def objective(trial):
         method=method,
         train_loader=train_loader,
         val_loader=val_loader,
-        trial=trial,
+        trial_number=trial.number,
         chkpt_path=chkpt_path
     )
 
@@ -252,7 +252,7 @@ if __name__ == '__main__':
                        help='Use weighted sampler for training')
     parser.add_argument('--balance_val', type=lambda x: x.lower() == 'true', default=False,
                        help='Use balanced validation set')
-    parser.add_argument('--select_chkpt_on', type=str, default="bce", choices=["bce", "auroc"],
+    parser.add_argument('--select_chkpt_on', type=str, default="bce", choices=["bce", "wbce", "auroc"],
                        help='Metric to select best model')
     parser.add_argument('--debug', action='store_true', 
                        help='Run in debug mode (tiny data, 1 epoch, CPU/MPS friendly)')
@@ -306,16 +306,10 @@ if __name__ == '__main__':
         # Define Optimization Direction
         direction = "maximize" if args.select_chkpt_on.upper() == 'AUROC' else "minimize"
         
-        # Hyperband Pruner to stop bad trials early
-        pruner = optuna.pruners.HyperbandPruner(min_resource=3, max_resource=30, reduction_factor=3)
-        
-        # Create Study with SQLite storage for persistence
-        #storage_url = f"sqlite:///{study_root}/optuna_study.db"
         study = optuna.create_study(
+            sampler=optuna.samplers.GPSampler(),
             direction=direction, 
             study_name=args.study_name,
-            pruner=pruner,
-            #storage=storage_url,
             load_if_exists=True
         )
         
