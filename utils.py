@@ -36,10 +36,10 @@ def run_training_phase(
     ema_model_compiled = torch.compile(ema_model, fullgraph=True, mode="reduce-overhead")
 
     # Initialize Metrics
-    train_auroc = BinaryAUROC()
-    val_auroc = BinaryAUROC()
-    val_wauroc = BinaryAUROC()
-    val_wauroc2 = BinaryAUROC()
+    train_auroc = BinaryAUROC(device=device)
+    val_auroc = BinaryAUROC(device=device)
+    val_wauroc = BinaryAUROC(device=device)
+    val_wauroc2 = BinaryAUROC(device=device)
 
     if config.select_chkpt_on.upper() == "AUROC":
         best_metric_val = 0.0
