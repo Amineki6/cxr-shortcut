@@ -89,7 +89,7 @@ class CXP_dataset(torchvision.datasets.VisionDataset):
             # Normalize for easier comparison with BCE
             self.weights = self.weights / self.weights.sum() * len(self.weights)
             assert self.weights.sum() == len(self.weights)
-            logging.info(f'Sample weights @ beta=0.99 are {self.weights.unique()}.')
+            logging.info(f'Sample weights @ beta=0.99 are {np.unique(self.weights)}.')
 
             # Second version with higher beta = stronger reweighting, closer to naive class weighting
             beta = 0.9999
@@ -98,7 +98,7 @@ class CXP_dataset(torchvision.datasets.VisionDataset):
             self.weights2 = class_weights[groups]   
             self.weights2 = self.weights2 / self.weights2.sum() * len(self.weights2) 
             assert self.weights2.sum() == len(self.weights2)
-            logging.info(f'Sample weights @ beta=0.9999 are {self.weights2.unique()}.')
+            logging.info(f'Sample weights @ beta=0.9999 are {np.unique(self.weights2)}.')
 
         self.return_weights = return_weights
 
