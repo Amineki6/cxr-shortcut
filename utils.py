@@ -36,10 +36,10 @@ def run_training_phase(
     ema_model_compiled = torch.compile(ema_model, fullgraph=True, mode="reduce-overhead")
 
     # Initialize Metrics
-    train_auroc = BinaryAUROC(device=device)
-    val_auroc = BinaryAUROC(device=device)
-    val_wauroc = BinaryAUROC(device=device)
-    val_wauroc2 = BinaryAUROC(device=device)
+    train_auroc = BinaryAUROC()
+    val_auroc = BinaryAUROC()
+    val_wauroc = BinaryAUROC()
+    val_wauroc2 = BinaryAUROC()
 
     if config.select_chkpt_on.upper() == "AUROC":
         best_metric_val = 0.0
@@ -105,7 +105,7 @@ def run_training_phase(
             # Metrics
             logits, _ = model_output
             flat_logits = logits.reshape(-1)
-            train_auroc.update(flat_logits, labels)
+            train_auroc.update(flat_logits.cpu(), labels.cpu())
             
             probs = torch.sigmoid(flat_logits)
             brier = ((probs - labels.float()) ** 2).sum().item()
@@ -152,9 +152,9 @@ def run_training_phase(
                                                                  reduction="sum")                
                 
                 flat_logits = logits.reshape(-1)
-                val_auroc.update(flat_logits, labels)
-                val_wauroc.update(flat_logits, labels, weight=sample_weights)
-                val_wauroc2.update(flat_logits, labels, weight=sample_weights2)
+                val_auroc.update(flat_logits.cpu(), labels.cpu())
+                val_wauroc.update(flat_logits.cpu(), labels.cpu(), weight=sample_weights.cpu())
+                val_wauroc2.update(flat_logits.cpu(), labels.cpu(), weight=sample_weights2.cpu())
                 
                 probs = torch.sigmoid(flat_logits)
                 brier = ((probs - labels.float()) ** 2).sum().item()
