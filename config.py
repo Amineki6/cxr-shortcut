@@ -21,7 +21,7 @@ class ExperimentConfig:
     # 2. Hyperparameters
     # -------------------------------------------------------------------------
     # General Optimizer Params (not tuned)
-    lr: float = 0.0001
+    lr: float = 0.0002
     weight_decay: float = 0.005
     
     # EMA (Exponential Moving Average) Params (not tuned)
@@ -63,7 +63,7 @@ class ExperimentConfig:
     # -------------------------------------------------------------------------
     # 4. Training Loop Constants
     # -------------------------------------------------------------------------
-    epochs: int = 60
+    epochs: int = 100
     batch_size: int = 64
     num_runs: int = 1  # Set to >1 for statistical significance testing (outside Optuna)
     num_workers: int = 12
