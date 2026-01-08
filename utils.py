@@ -46,9 +46,8 @@ def run_training_phase(
     train_auroc = BinaryAUROC()
     val_auroc = BinaryAUROC()
     val_wauroc = BinaryAUROC()
-    val_wauroc2 = BinaryAUROC()
 
-    if config.select_chkpt_on.upper() == "AUROC":
+    if config.select_chkpt_on.upper() in ["AUROC", "WAUROC"]:
         best_metric_val = 0.0
     else:
         best_metric_val = float('inf')
@@ -132,11 +131,9 @@ def run_training_phase(
         val_loss_sum = 0.0
         val_bce_sum = 0.0
         val_wbce_sum = 0.0
-        val_wbce2_sum = 0.0
         val_brier_sum = 0.0
         val_auroc.reset()
         val_wauroc.reset()
-        val_wauroc2.reset()
         
         with torch.no_grad():
             for batch in val_loader:
@@ -147,7 +144,6 @@ def run_training_phase(
                 drain = batch[2].to(device, non_blocking=True)
                 extra_info["drain"] = drain
                 sample_weights = batch[3].to(device, non_blocking=True)
-                sample_weights2 = batch[4].to(device, non_blocking=True)
 
                 logits, projections = ema_model_compiled(inputs)
                 loss, components = method.compute_loss((logits, projections), labels, extra_info=extra_info)
@@ -158,17 +154,12 @@ def run_training_phase(
                 val_wbce_sum += binary_cross_entropy_with_logits(logits.view(-1),
                                                                  labels.float(),
                                                                  weight=sample_weights,
-                                                                 reduction="sum")
-                val_wbce2_sum += binary_cross_entropy_with_logits(logits.view(-1),
-                                                                 labels.float(),
-                                                                 weight=sample_weights2,
-                                                                 reduction="sum")                
+                                                                 reduction="sum")            
                 
                 flat_logits = logits.reshape(-1)
                 val_auroc.update(flat_logits.cpu(), labels.cpu())
                 val_wauroc.update(flat_logits.cpu(), labels.cpu(), weight=sample_weights.cpu())
-                val_wauroc2.update(flat_logits.cpu(), labels.cpu(), weight=sample_weights2.cpu())
-                
+
                 probs = torch.sigmoid(flat_logits)
                 brier = ((probs - labels.float()) ** 2).sum().item()
                 val_brier_sum += brier
@@ -179,11 +170,9 @@ def run_training_phase(
         epoch_train_bce = train_bce_sum / len(train_loader.dataset)
         epoch_val_bce = val_bce_sum / len(val_loader.dataset)
         epoch_val_wbce = val_wbce_sum / len(val_loader.dataset)
-        epoch_val_wbce2 = val_wbce2_sum / len(val_loader.dataset)
         epoch_train_auroc = train_auroc.compute().item()
         epoch_val_auroc = val_auroc.compute().item()
         epoch_val_wauroc = val_wauroc.compute().item()
-        epoch_val_wauroc2 = val_wauroc2.compute().item()
         epoch_train_brier = train_brier_sum / len(train_loader.dataset)
         epoch_val_brier = val_brier_sum / len(val_loader.dataset)
 
@@ -200,11 +189,9 @@ def run_training_phase(
             f"{wandb_prefix}BCE/train": epoch_train_bce,
             f"{wandb_prefix}BCE/val": epoch_val_bce,
             f"{wandb_prefix}wBCE/val": epoch_val_wbce,
-            f"{wandb_prefix}wBCE2/val": epoch_val_wbce2,
             f"{wandb_prefix}auroc/train": epoch_train_auroc,
             f"{wandb_prefix}auroc/val": epoch_val_auroc,
             f"{wandb_prefix}wauroc/val": epoch_val_wauroc,
-            f"{wandb_prefix}wauroc2/val": epoch_val_wauroc2,
             f"{wandb_prefix}brier/train": epoch_train_brier,
             f"{wandb_prefix}brier/val": epoch_val_brier
         })
@@ -213,6 +200,9 @@ def run_training_phase(
         save_chkpt = False
         if config.select_chkpt_on.upper() == "AUROC" and epoch_val_auroc > best_metric_val:
             best_metric_val = epoch_val_auroc
+            save_chkpt = True
+        elif config.select_chkpt_on.upper() == "WAUROC" and epoch_val_wauroc > best_metric_val:
+            best_metric_val = epoch_val_wauroc
             save_chkpt = True
         elif config.select_chkpt_on.upper() == "BCE" and epoch_val_bce < best_metric_val:
             best_metric_val = epoch_val_bce

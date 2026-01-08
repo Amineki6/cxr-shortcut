@@ -63,7 +63,7 @@ class ExperimentConfig:
     # -------------------------------------------------------------------------
     # 4. Training Loop Constants
     # -------------------------------------------------------------------------
-    epochs: int = 100
+    epochs: int = 150
     batch_size: int = 64
     num_runs: int = 1  # Set to >1 for statistical significance testing (outside Optuna)
     num_workers: int = 12
