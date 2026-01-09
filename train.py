@@ -99,15 +99,15 @@ def objective(trial):
         # Optimizable Hyperparameters
         
         if config.method_name == "supcon":
-            config.supcon_lambda = trial.suggest_float("supcon_lambda", 0.01, 50.0)
+            config.supcon_lambda = trial.suggest_float("supcon_lambda", 0.001, 100.0)
             config.supcon_temperature = trial.suggest_float("supcon_temperature", 0.05, 0.5)
         elif config.method_name == "mmd":
-            config.mmd_lambda = trial.suggest_float("mmd_lambda", 0.01, 50.0)
+            config.mmd_lambda = trial.suggest_float("mmd_lambda", 0.001, 100.0)
         elif config.method_name == "cdan":
-            config.cdan_lambda = trial.suggest_float("cdan_lambda", 0.01, 50.0)
+            config.cdan_lambda = trial.suggest_float("cdan_lambda", 0.001, 100.0)
             config.cdan_entropy = True 
         elif config.method_name == "score_matching":
-            config.score_matching_lambda = trial.suggest_float("score_matching_lambda", 0.01, 50.0)
+            config.score_matching_lambda = trial.suggest_float("score_matching_lambda", 0.001, 100.0)
         elif config.method_name == "jtt":
             config.jtt_duration = trial.suggest_int("jtt_duration", 1, max(1, config.epochs // 2))
             config.jtt_lambda = trial.suggest_float("jtt_lambda", 2.0, 100.0, log=True)
@@ -304,7 +304,7 @@ if __name__ == '__main__':
         logging.info(f"Device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
 
         # Define Optimization Direction
-        direction = "maximize" if args.select_chkpt_on.upper() == 'AUROC' else "minimize"
+        direction = "maximize" if 'AUROC' in args.select_chkpt_on.upper() else "minimize"
         
         study = optuna.create_study(
             sampler=optuna.samplers.GPSampler(),
