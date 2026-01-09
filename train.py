@@ -315,7 +315,7 @@ if __name__ == '__main__':
         
         # ========================== RUN OPTIMIZATION ===============================================
 
-        study.optimize(objective, n_trials=args.n_trials)
+        study.optimize(objective, n_trials=args.n_trials, gc_after_trial=True)
         best_params = study.best_trial.params.items()
         # ===========================================================================================
         
