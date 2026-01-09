@@ -175,9 +175,22 @@ class DatasetScoreMatchingMethod(BaseMethod):
         # 2. Score matching loss
         score_matching_val = self.score_matching_loss(probs=torch.sigmoid(logits.view(-1)),
                                                       labels=targets,
-                                                      groups=extra_info['drain'])
+                                                      groups=extra_info['drain'],
+                                                      indices=extra_info['indices'])
 
         total_loss = bce_loss + self.lambda_val * score_matching_val
         
         return total_loss, {"bce": bce_loss.item(), "dataset_score_matching_loss": score_matching_val.item()}
     
+    def update_loss(self, 
+                     model_output: tuple[torch.Tensor, Optional[torch.Tensor]], 
+                     targets: torch.Tensor, 
+                     extra_info: Optional[dict] = None
+                     ):
+        
+        logits, _ = model_output
+        
+        self.score_matching_loss.update(probs=torch.sigmoid(logits.view(-1)),
+                                        labels=targets,
+                                        groups=extra_info['drain'],
+                                        indices=extra_info['indices'])        

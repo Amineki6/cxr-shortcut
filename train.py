@@ -140,7 +140,7 @@ def objective(trial):
     train_loader, val_loader, _, _ = get_dataloaders(config, debug=GLOBAL_ARGS.debug)
     
     # Get Method Strategy (Standard or SupCon)
-    method = methods.get_method(config.method_name, config, val_set_size=len(val_loader.dataset))
+    method = methods.get_method(config.method_name, config, train_set_size=len(train_loader.dataset))
 
     # --- JTT STAGE 1 LOGIC ---
     if config.method_name == "jtt":

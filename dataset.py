@@ -16,7 +16,8 @@ class CXP_dataset(torchvision.datasets.VisionDataset):
     def __init__(self, root_dir: str, 
                  csv_file: Path | str, 
                  augment: bool = True, 
-                 return_weights: bool = False
+                 return_weights: bool = False,
+                 return_indices: bool = False,
                  ) -> None:
 
         if augment:
@@ -92,15 +93,24 @@ class CXP_dataset(torchvision.datasets.VisionDataset):
             logging.info(f'Sample weights @ beta=0.9999 are {np.unique(self.weights)}.')
 
         self.return_weights = return_weights
+        self.return_indices = return_indices
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, int, int] | tuple[torch.Tensor, int, int, float]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, int, int] | tuple[torch.Tensor, int, int, float] | tuple[int, torch.Tensor, int, int] | tuple[int, torch.Tensor, int, int, float]:
+        
         try:
             img = torchvision.io.read_image(os.path.join(self.root_dir, self.path[index]))
             img = self.transform(img)
-            if self.return_weights:
-                return img, self.labels[index], self.drain[index], self.weights[index]
+            if self.return_indices:
+                if self.return_weights:
+                    return index, img, self.labels[index], self.drain[index], self.weights[index]
+                else:
+                    return index, img, self.labels[index], self.drain[index]
             else:
-                return img, self.labels[index], self.drain[index]
+                if self.return_weights:
+                    return img, self.labels[index], self.drain[index], self.weights[index]
+                else:
+                    return img, self.labels[index], self.drain[index]
+                
         except RuntimeError as e:
             logging.error(f"Error loading image at index {index}: {self.path[index]}")
             logging.error(f"Error message: {e}")

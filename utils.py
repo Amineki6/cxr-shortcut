@@ -73,23 +73,17 @@ def run_training_phase(
         
         for batch in tqdm(train_loader, desc=f"Trial {trial_number} {wandb_prefix} Ep {epoch}", leave=False):
 
-            if config.method_name == "jtt":
-                if len(batch) == 4:
-                    inputs, labels, weights, drain = batch
-                elif len(batch) == 3:
-                     # Stage 1: Standard ERM, no weights yet
-                    inputs, labels, drain = batch
-                    weights = None
-                else:
-                     raise ValueError(f"Unexpected JTT batch size: {len(batch)}")
+            if len(batch) == 5:
+                indices, inputs, labels, weights, drain = batch
             else:
-                assert len(batch) == 3
-                inputs, labels, drain = batch
+                assert len(batch) == 4
+                indices, inputs, labels, drain = batch
                 weights = None
 
             inputs = inputs.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
             drain = drain.to(device, non_blocking=True)
+            indices = indices.to(device, non_blocking=True)
             
             # Pass weights to method if they exist
             if weights:
@@ -102,7 +96,7 @@ def run_training_phase(
             # Forward & Loss
             model_output = model_compiled(inputs)
             
-            extra_info = {"drain": drain} 
+            extra_info = {"drain": drain, 'indices': indices} 
             
             loss, components = method.compute_loss(model_output, targets, extra_info=extra_info)
             
@@ -122,6 +116,14 @@ def run_training_phase(
             probs = torch.sigmoid(flat_logits)
             brier = ((probs - labels.float()) ** 2).sum().item()
             train_brier_sum += brier
+
+            # Some losses (actually only dataset_score_matching) need to be updated with new model outputs after optimizer.step()
+            try:
+                model_output = model_compiled(inputs)
+                method.update_loss(model_output, targets, extra_info=extra_info)
+            except AttributeError:
+                # not all methods have this; that is expected and fine
+                pass   
             
         # EMA Update
         ema_model_compiled.update_parameters(model_compiled)
@@ -352,8 +354,8 @@ def get_dataloaders(config: ExperimentConfig, debug=False):
         train_csv = config.csv_dir / 'train_drain_shortcut.csv'
         val_csv = config.csv_dir / 'val_drain_shortcut.csv'
 
-    train_data = CXP_dataset(config.data_dir, train_csv, augment=True)
-    val_data = CXP_dataset(config.data_dir, val_csv, augment=False, return_weights=True)
+    train_data = CXP_dataset(config.data_dir, train_csv, augment=True, return_weights=False, return_indices=True)
+    val_data = CXP_dataset(config.data_dir, val_csv, augment=False, return_weights=True, return_indices=False)
     
     test_data_aligned = CXP_dataset(config.data_dir, config.csv_dir / 'test_drain_shortcut_aligned.csv', augment=False)
     test_data_misaligned = CXP_dataset(config.data_dir, config.csv_dir / 'test_drain_shortcut_misaligned.csv', augment=False)
