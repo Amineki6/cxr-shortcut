@@ -158,11 +158,10 @@ def objective(trial):
             method=method,
             train_loader=train_loader,
             val_loader=val_loader,
-            trial=trial, # We still pass trial for logging, but we disable pruning
+            trial_number=trial.number, # We still pass trial for logging, but we disable pruning
             chkpt_path=stage1_chkpt,
             num_epochs=config.jtt_duration,
             wandb_prefix="jtt_stage1/",
-            allow_pruning=False
         )
         
         # 3. Identify Error Set
