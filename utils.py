@@ -139,13 +139,15 @@ def run_training_phase(
         
         with torch.no_grad():
             for batch in val_loader:
-                inputs = batch[0].to(device, non_blocking=True)
-                labels = batch[1].to(device, non_blocking=True)
+                indices = batch[0].to(device, non_blocking=True)
+                inputs = batch[1].to(device, non_blocking=True)
+                labels = batch[2].to(device, non_blocking=True)
                 
                 extra_info = {}
-                drain = batch[2].to(device, non_blocking=True)
+                drain = batch[3].to(device, non_blocking=True)
                 extra_info["drain"] = drain
-                sample_weights = batch[3].to(device, non_blocking=True)
+                extra_info["indices"] = indices
+                sample_weights = batch[4].to(device, non_blocking=True)
 
                 logits, projections = ema_model_compiled(inputs)
                 loss, components = method.compute_loss((logits, projections), labels, extra_info=extra_info)
@@ -262,13 +264,14 @@ def run_testing_phase(
     test_results_aligned = []
     
     with torch.no_grad():
-        for inputs, labels, drain in tqdm(test_loader_aligned, desc="Test Aligned", leave=False):
+        for indices, inputs, labels, drain in tqdm(test_loader_aligned, desc="Test Aligned", leave=False):
             inputs, labels = inputs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
             drain = drain.to(device, non_blocking=True)
-            
+            indices = indices.to(device, non_blocking=True)
+
             logits, projections = ema_model(inputs)
             
-            loss, components = method.compute_loss((logits, projections), labels, extra_info={"drain": drain})
+            loss, components = method.compute_loss((logits, projections), labels, extra_info={"drain": drain, 'indices': indices})
             
             batchsize = inputs.size(0)
             test_loss_aligned += loss.item() * batchsize
@@ -300,13 +303,14 @@ def run_testing_phase(
     test_results_misaligned = []
     
     with torch.no_grad():
-        for inputs, labels, drain in tqdm(test_loader_misaligned, desc="Test Misaligned", leave=False):
+        for indices, inputs, labels, drain in tqdm(test_loader_misaligned, desc="Test Misaligned", leave=False):
             inputs, labels = inputs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
             drain = drain.to(device, non_blocking=True)
+            indices = indices.to(device, non_blocking=True)
             
             logits, projections = ema_model(inputs)
             
-            loss, components = method.compute_loss((logits, projections), labels, extra_info={"drain": drain})
+            loss, components = method.compute_loss((logits, projections), labels, extra_info={"drain": drain, 'indices': indices})
 
             batchsize = inputs.size(0)
             test_loss_misaligned += loss.item() * batchsize
@@ -355,10 +359,10 @@ def get_dataloaders(config: ExperimentConfig, debug=False):
         val_csv = config.csv_dir / 'val_drain_shortcut.csv'
 
     train_data = CXP_dataset(config.data_dir, train_csv, augment=True, return_weights=False, return_indices=True)
-    val_data = CXP_dataset(config.data_dir, val_csv, augment=False, return_weights=True, return_indices=False)
+    val_data = CXP_dataset(config.data_dir, val_csv, augment=False, return_weights=True, return_indices=True)
     
-    test_data_aligned = CXP_dataset(config.data_dir, config.csv_dir / 'test_drain_shortcut_aligned.csv', augment=False)
-    test_data_misaligned = CXP_dataset(config.data_dir, config.csv_dir / 'test_drain_shortcut_misaligned.csv', augment=False)
+    test_data_aligned = CXP_dataset(config.data_dir, config.csv_dir / 'test_drain_shortcut_aligned.csv', augment=False, return_indices=True)
+    test_data_misaligned = CXP_dataset(config.data_dir, config.csv_dir / 'test_drain_shortcut_misaligned.csv', augment=False, return_indices=True)
 
     if debug:
         logging.info("DEBUG MODE ACTIVE: Subsetting datasets to max 50 samples.")
