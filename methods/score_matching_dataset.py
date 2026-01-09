@@ -13,14 +13,14 @@ class DatasetScoreMatchingLoss(nn.Module):
     only backpropagates gradients through the current batch.
     """
 
-    def __init__(self, dataset_size: int, min_subgroup_count: int = 10):
+    def __init__(self, dataset_size: int, min_subgroup_count: int = 10, device: str = 'cuda'):
         super().__init__()
         self.min_subgroup_count = max(1, min_subgroup_count)
         
         # Persistent buffers (not parameters, won't be updated by optimizer)
-        self.register_buffer('score_buffer', torch.full((dataset_size,), float('nan')))
-        self.register_buffer('label_buffer', torch.full((dataset_size,), -1, dtype=torch.long))
-        self.register_buffer('group_buffer', torch.full((dataset_size,), -1, dtype=torch.long))
+        self.register_buffer('score_buffer', torch.full((dataset_size,), float('nan'), device=device))
+        self.register_buffer('label_buffer', torch.full((dataset_size,), -1, dtype=torch.long, device=device))
+        self.register_buffer('group_buffer', torch.full((dataset_size,), -1, dtype=torch.long, device=device))
 
     def forward(
         self, 
@@ -140,7 +140,8 @@ class DatasetScoreMatchingMethod(BaseMethod):
         super().__init__(config)
         self.score_matching_loss = DatasetScoreMatchingLoss(
             min_subgroup_count=getattr(config, 'dataset_score_matching_min_subgroup_count', 10),
-            dataset_size=dataset_size)
+            dataset_size=dataset_size,
+            device=config.device)
         
         # Default lambda is 1.0 if not specified in config
         self.lambda_val = getattr(config, 'dataset_score_matching_lambda', 1.0)
