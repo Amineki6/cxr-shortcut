@@ -103,27 +103,68 @@ class MMDMethod(BaseMethod):
                      extra_info: Optional[dict] = None
                      ) -> tuple[torch.Tensor, dict]:
         """
-        Calculates Total Loss = BCE + Lambda * MMD
-        Uses 'extra_info' to access the Drain labels.
+        Calculates Total Loss = BCE + Lambda * Conditional MMD
+        Conditioned on Class: 
+          - Align Healthy (No Drain) <-> Healthy (Drain)
+          - Align Pneu (No Drain) <-> Pneu (Drain)
         """
         assert extra_info is not None and 'drain' in extra_info.keys()
         
         logits, features = model_output
         assert features is not None
 
-        # 1. Classification Loss (Standard)
-        bce_loss = self.bce(logits.view(-1), targets.float())
-        
-        # 2. MMD Loss (Domain Alignment)
-        # Split features: Domain 0 (No Drain) vs Domain 1 (Drain)
-        features_no_drain = features[extra_info['drain'] == 0]
-        features_drain = features[extra_info['drain'] == 1]
-        
-        mmd_val = self.mmd_loss(features_no_drain, features_drain)
+        # Handling targets which might be (labels, weights) tuple or just labels
+        if isinstance(targets, tuple):
+            labels, sample_weights = targets
+        else:
+            labels = targets
+            sample_weights = None
 
-        total_loss = bce_loss + (self.lambda_val * mmd_val)
+        # 1. Classification Loss (Standard)
+        if sample_weights is not None:
+             bce_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                logits.view(-1), labels.float(), weight=sample_weights
+            )
+        else:
+            bce_loss = self.bce(logits.view(-1), labels.float())
+        
+        # 2. Conditional MMD Loss
+        drain = extra_info['drain']
+        
+        # Masks for Classes
+        class0_mask = (labels == 0)
+        class1_mask = (labels == 1)
+        
+        # --- Class 0 (Healthy) Alignment ---
+        input_c0 = features[class0_mask]
+        drain_c0 = drain[class0_mask]
+        
+        c0_source = input_c0[drain_c0 == 0] # No Drain
+        c0_target = input_c0[drain_c0 == 1] # Drain
+        
+        if len(c0_source) > 0 and len(c0_target) > 0:
+            mmd_class0 = self.mmd_loss(c0_source, c0_target)
+        else:
+            mmd_class0 = torch.tensor(0.0, device=features.device)
+            
+        # --- Class 1 (Pneumothorax) Alignment ---
+        input_c1 = features[class1_mask]
+        drain_c1 = drain[class1_mask]
+        
+        c1_source = input_c1[drain_c1 == 0] # No Drain
+        c1_target = input_c1[drain_c1 == 1] # Drain
+        
+        if len(c1_source) > 0 and len(c1_target) > 0:
+            mmd_class1 = self.mmd_loss(c1_source, c1_target)
+        else:
+            mmd_class1 = torch.tensor(0.0, device=features.device)
+
+        # Total MMD
+        total_mmd = mmd_class0 + mmd_class1
+
+        total_loss = bce_loss + (self.lambda_val * total_mmd)
         
         return total_loss, {
             "bce": bce_loss.item(),
-            "mmd": mmd_val.item()
+            "mmd": total_mmd.item()
         }
