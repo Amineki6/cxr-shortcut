@@ -43,6 +43,8 @@ class ExperimentConfig:
     # (Only used if method_name == "score_matching")
     score_matching_lambda: float = 10.0
     score_matching_min_subgroup_count: int = 3
+    dataset_score_matching_lambda: float = 10.0
+    dataset_score_matching_min_subgroup_count: int = 10
 
     # Method-Specific Params: JTT
     # (Only used if method_name == "jtt")

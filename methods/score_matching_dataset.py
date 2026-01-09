@@ -1,0 +1,183 @@
+import torch
+import torch.nn as nn
+from typing import Optional
+
+from .base import BaseMethod
+from config import ExperimentConfig
+
+
+class DatasetScoreMatchingLoss(nn.Module):
+    """
+    Dataset-level score matching loss that maintains a persistent buffer of predictions
+    across the entire dataset. Computes variance using all available predictions but
+    only backpropagates gradients through the current batch.
+    """
+
+    def __init__(self, dataset_size: int, min_subgroup_count: int = 10):
+        super().__init__()
+        self.min_subgroup_count = max(1, min_subgroup_count)
+        
+        # Persistent buffers (not parameters, won't be updated by optimizer)
+        self.register_buffer('score_buffer', torch.full((dataset_size,), float('nan')))
+        self.register_buffer('label_buffer', torch.full((dataset_size,), -1, dtype=torch.long))
+        self.register_buffer('group_buffer', torch.full((dataset_size,), -1, dtype=torch.long))
+
+    def forward(
+        self, 
+        probs: torch.Tensor, 
+        labels: torch.Tensor, 
+        groups: torch.Tensor,
+        indices: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Compute loss using full dataset buffer but only backprop through current batch.
+        
+        Args:
+            probs: (B,) or (B, 1) predicted probabilities for current batch
+            labels: (B,) true binary labels for current batch
+            groups: (B,) group indicators for current batch
+            indices: (B,) dataset indices for current batch samples
+            
+        Returns:
+            Scalar loss tensor with gradients only w.r.t. current batch predictions
+        """
+        # Normalize shapes
+        if probs.dim() == 2:
+            assert probs.shape[1] == 1
+            probs = probs.squeeze(1)
+        
+        B = probs.shape[0]
+        assert labels.shape == (B,) and groups.shape == (B,) and indices.shape == (B,)
+        
+        # Start with detached buffer, then inject gradient-enabled batch predictions
+        buffer_scores = self.score_buffer.clone()
+        buffer_scores[indices] = probs
+        
+        buffer_labels = self.label_buffer.clone()
+        buffer_labels[indices] = labels
+        
+        buffer_groups = self.group_buffer.clone()
+        buffer_groups[indices] = groups
+        
+        # Check valid entries (all three buffers must be valid) AFTER inserting batch data
+        valid_mask = (~torch.isnan(buffer_scores) & 
+                      (buffer_labels >= 0) & 
+                      (buffer_groups >= 0))
+        if valid_mask.sum() == 0:
+            return torch.tensor(0.0, device=probs.device, dtype=probs.dtype).detach()
+        
+        # Extract only valid entries for computation
+        buffer_scores = buffer_scores[valid_mask]
+        buffer_labels = buffer_labels[valid_mask]
+        buffer_groups = buffer_groups[valid_mask]
+        
+        # Compute group-wise averages per class
+        unique_groups = buffer_groups.unique()
+        group_pos_avgs = []
+        group_neg_avgs = []
+        
+        for g in unique_groups:
+            mask = (buffer_groups == g)
+            g_labels = buffer_labels[mask]
+            g_scores = buffer_scores[mask]
+            
+            # Positive subgroup
+            pos_mask = (g_labels == 1)
+            if pos_mask.sum() >= self.min_subgroup_count:
+                group_pos_avgs.append(g_scores[pos_mask].mean())
+            
+            # Negative subgroup
+            neg_mask = (g_labels == 0)
+            if neg_mask.sum() >= self.min_subgroup_count:
+                group_neg_avgs.append(g_scores[neg_mask].mean())
+        
+        # Compute variances
+        pos_var = torch.stack(group_pos_avgs).var() if len(group_pos_avgs) >= 2 else None
+        neg_var = torch.stack(group_neg_avgs).var() if len(group_neg_avgs) >= 2 else None
+        
+        if pos_var is not None and neg_var is not None:
+            return (pos_var + neg_var) / 2.0
+        elif pos_var is not None:
+            return pos_var
+        elif neg_var is not None:
+            return neg_var
+        else:
+            return torch.tensor(0.0, device=probs.device, dtype=probs.dtype).detach()
+
+    def update(
+        self, 
+        probs: torch.Tensor,
+        labels: torch.Tensor,
+        groups: torch.Tensor,
+        indices: torch.Tensor
+    ) -> None:
+        """
+        Update buffers after optimizer step (since predictions changed).
+        
+        Args:
+            probs: (B,) or (B, 1) updated predictions for current batch
+            labels: (B,) true binary labels for current batch
+            groups: (B,) group indicators for current batch
+            indices: (B,) dataset indices for current batch samples
+        """
+        if probs.dim() == 2:
+            probs = probs.squeeze(1)
+        
+        with torch.no_grad():
+            self.score_buffer[indices] = probs.detach()
+            self.label_buffer[indices] = labels.detach()
+            self.group_buffer[indices] = groups.detach()
+
+    def reset_buffer(self) -> None:
+        """Reset buffers (e.g., at start of new epoch if desired)."""
+        self.score_buffer.fill_(float('nan'))
+        self.label_buffer.fill_(-1)
+        self.group_buffer.fill_(-1)
+
+
+class DatasetScoreMatchingMethod(BaseMethod):
+    def __init__(self, config: ExperimentConfig, dataset_size: int):
+        super().__init__(config)
+        self.score_matching_loss = DatasetScoreMatchingLoss(
+            min_subgroup_count=getattr(config, 'dataset_score_matching_min_subgroup_count', 10),
+            dataset_size=dataset_size)
+        
+        # Default lambda is 1.0 if not specified in config
+        self.lambda_val = getattr(config, 'dataset_score_matching_lambda', 1.0)
+
+    def get_model_components(self, num_features: int) -> tuple[nn.Module, Optional[nn.Module]]:
+        # Score matching only needs a classification head.
+        clf = nn.Sequential(
+            nn.Linear(num_features, 512),
+            nn.ReLU(),
+            nn.Linear(512, 1)
+        )
+        # We return None for the projection head because we don't use it.
+        return clf, None
+
+    def compute_loss(self, 
+                     model_output: tuple[torch.Tensor, Optional[torch.Tensor]], 
+                     targets: torch.Tensor, 
+                     extra_info: Optional[dict] = None
+                     ) -> tuple[torch.Tensor, dict]:
+        """
+        Calculates Total Loss = BCE + Lambda * ScoreMatchingLoss
+        Uses 'extra_info' to access the Drain labels.
+        """
+        assert extra_info is not None
+        assert 'drain' in extra_info.keys()
+
+        logits, _ = model_output
+        
+        # 1. Classification Loss (Standard)
+        bce_loss = self.bce(logits.view(-1), targets.float())
+        
+        # 2. Score matching loss
+        score_matching_val = self.score_matching_loss(probs=torch.sigmoid(logits.view(-1)),
+                                                      labels=targets,
+                                                      groups=extra_info['drain'])
+
+        total_loss = bce_loss + self.lambda_val * score_matching_val
+        
+        return total_loss, {"bce": bce_loss.item(), "dataset_score_matching_loss": score_matching_val.item()}
+    

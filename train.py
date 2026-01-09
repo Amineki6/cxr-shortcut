@@ -89,6 +89,8 @@ def objective(trial):
             config.cdan_entropy = True
         elif config.method_name == "score_matching":
             config.score_matching_lambda = 1.0
+        elif config.method_name == "dataset_score_matching":
+            config.dataset_score_matching_lambda = 1.0            
         elif config.method_name == "jtt":
             config.jtt_duration = 1
             config.jtt_lambda = 4.0
@@ -108,6 +110,8 @@ def objective(trial):
             config.cdan_entropy = True 
         elif config.method_name == "score_matching":
             config.score_matching_lambda = trial.suggest_float("score_matching_lambda", 0.001, 100.0)
+        elif config.method_name == "dataset_score_matching":
+            config.score_matching_lambda = trial.suggest_float("dataset_score_matching_lambda", 0.001, 100.0)            
         elif config.method_name == "jtt":
             config.jtt_duration = trial.suggest_int("jtt_duration", 1, max(1, config.epochs // 2))
             config.jtt_lambda = trial.suggest_float("jtt_lambda", 2.0, 100.0, log=True)
@@ -136,7 +140,7 @@ def objective(trial):
     train_loader, val_loader, _, _ = get_dataloaders(config, debug=GLOBAL_ARGS.debug)
     
     # Get Method Strategy (Standard or SupCon)
-    method = methods.get_method(config.method_name, config)
+    method = methods.get_method(config.method_name, config, val_set_size=len(val_loader.dataset))
 
     # --- JTT STAGE 1 LOGIC ---
     if config.method_name == "jtt":
@@ -258,7 +262,7 @@ if __name__ == '__main__':
     
     # Methods
     parser.add_argument('--method', type=str, default='standard',
-                       choices=['standard', 'supcon', 'mmd', 'cdan', 'score_matching', 'jtt'],
+                       choices=['standard', 'supcon', 'mmd', 'cdan', 'score_matching', 'dataset_score_matching', 'jtt'],
                        help='Method to use for training (default: standard)')
 
     args = parser.parse_args()
