@@ -200,10 +200,17 @@ def objective(trial):
     
     # Init Optimizer
     #optimizer = optim.AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
-    optimizer = optim.AdamW([
+    # Define optimizer parameters
+    params = [
         {'params': model.encoder.parameters(), 'lr': config.lr / 5},
         {'params': model.clf.parameters(), 'lr': config.lr}
-    ], weight_decay=config.weight_decay)
+    ]
+    
+    # Include projection head if it exists (e.g. for SupCon)
+    if model.projection_head is not None:
+        params.append({'params': model.projection_head.parameters(), 'lr': config.lr})
+
+    optimizer = optim.AdamW(params, weight_decay=config.weight_decay)
 
     # Filename for this specific trial's checkpoint
     trial_str = str(trial.number).zfill(3)

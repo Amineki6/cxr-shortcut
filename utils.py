@@ -486,6 +486,55 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
     # Get Method Strategy
     method = methods.get_method(config.method_name, config)
     
+    # --- JTT STAGE 1 LOGIC ---
+    if config.method_name == "jtt":
+        logging.info("--- JTT Stage 1: Identification Phase ---")
+        
+        # 1. Initialize Identification Model
+        model_1 = CXP_Model(method).to(device)
+        ema_model_1 = AveragedModel(model_1, multi_avg_fn=get_ema_multi_avg_fn(config.ema_decay), use_buffers=True)
+        optimizer_1 = optim.AdamW(model_1.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+        
+        # 2. Train Identification Model
+        stage1_chkpt = output_dir / f"run_{trial_number}_jtt_stage1.chkpt"
+        
+        run_training_phase(
+            config=config,
+            model=model_1,
+            ema_model=ema_model_1,
+            optimizer=optimizer_1,
+            method=method,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            trial_number=trial_number,
+            chkpt_path=stage1_chkpt,
+            num_epochs=config.jtt_duration,
+            wandb_prefix="jtt_stage1/",
+        )
+        
+        # 3. Identify Error Set
+        # Create a sequential (non-shuffled) loader for correct index mapping
+        id_loader = torch.utils.data.DataLoader(
+            train_loader.dataset,
+            batch_size=config.batch_size,
+            shuffle=False, 
+            num_workers=config.num_workers,
+            pin_memory=True
+        )
+        
+        error_indices = identify_error_set(model_1, method, id_loader, device)
+        n_train_len = len(train_loader.dataset)
+        logging.info(f"JTT Stage 1 Complete. Found {len(error_indices)} errors out of {n_train_len} examples.")
+        
+        # 4. Create JTT Stage 2 Loader
+        train_loader = get_jtt_loader(train_loader.dataset, error_indices, config)
+        
+        logging.info("--- JTT Stage 2: Upweighted Training Phase ---")
+        
+        # Clean up Stage 1 artifacts
+        del model_1, ema_model_1, optimizer_1, id_loader
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    
     # Init Model
     model = CXP_Model(method).to(device)
     
@@ -493,7 +542,17 @@ def run_final_eval(config, trial_number, output_dir, run_name_prefix):
     ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(config.ema_decay), use_buffers=True)
     
     # Init Optimizer
-    optimizer = optim.AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+    # Define optimizer parameters
+    params = [
+        {'params': model.encoder.parameters(), 'lr': config.lr / 5},
+        {'params': model.clf.parameters(), 'lr': config.lr}
+    ]
+    
+    # Include projection head if it exists (e.g. for SupCon)
+    if model.projection_head is not None:
+        params.append({'params': model.projection_head.parameters(), 'lr': config.lr})
+
+    optimizer = optim.AdamW(params, weight_decay=config.weight_decay)
     
     # Checkpoint Path
     chkpt_path = output_dir / f'run_{trial_number}_best.chkpt'
@@ -541,9 +600,19 @@ def identify_error_set(model, method, loader, device, max_batches=None):
         for i, batch in enumerate(tqdm(loader, desc="Identifying Error Set", leave=False)):
             if max_batches is not None and i >= max_batches:
                 break
-                
-            inputs = batch[0].to(device)
-            labels = batch[1].to(device)
+            
+            # Unpack based on your dataset structure (indices, inputs, labels, drain)
+            if len(batch) == 4:
+                _, inputs, labels, _ = batch
+            elif len(batch) == 5:
+                 _, inputs, labels, _, _ = batch
+            else:
+                # Fallback if structure varies, but typically it's indices first
+                inputs = batch[1]
+                labels = batch[2]
+            
+            inputs = inputs.to(device)
+            labels = labels.to(device)
             
             # Forward pass
             model_output = model(inputs)
