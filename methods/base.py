@@ -2,6 +2,7 @@ import torch.nn as nn
 from abc import ABC, abstractmethod
 from typing import Optional
 import torch
+import copy
 
 from config import ExperimentConfig
 
@@ -49,3 +50,20 @@ class BaseMethod(ABC):
             dict: Loss components. (At least "bce" is always present.)
         """
         pass
+
+    def clone(self, dataset_size: Optional[int] = None):
+        """
+        Creates a deep copy of the method instance.
+        
+        This creates a new instance with fresh loss modules and buffers.
+        Subclasses can override this to handle special reinitialization logic.
+        
+        Args:
+            dataset_size: Optional dataset size for methods that need to 
+                         reinitialize buffers (e.g., DatasetScoreMatchingMethod).
+                         Default implementation ignores this parameter.
+        
+        Returns:
+            BaseMethod: A new instance of the same method class.
+        """
+        return copy.deepcopy(self)

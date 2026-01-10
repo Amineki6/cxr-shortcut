@@ -47,6 +47,10 @@ def run_training_phase(
     val_auroc = BinaryAUROC()
     val_wauroc = BinaryAUROC()
 
+    # create copy of method - in particular of the attached loss - because some methods
+    # (-> score_matching_dataset) have a loss state that should not be shared between train and val
+    val_method = method.clone(dataset_size=len(val_loader.dataset))
+
     if config.select_chkpt_on.upper() in ["AUROC", "WAUROC"]:
         best_metric_val = 0.0
     else:
@@ -119,8 +123,9 @@ def run_training_phase(
 
             # Some losses (actually only dataset_score_matching) need to be updated with new model outputs after optimizer.step()
             try:
-                model_output = model_compiled(inputs)
-                method.update_loss(model_output, targets, extra_info=extra_info)
+                with torch.no_grad():
+                    model_output = model_compiled(inputs)
+                    method.update_loss(model_output, targets, extra_info=extra_info)
             except AttributeError:
                 # not all methods have this; that is expected and fine
                 pass   
@@ -150,7 +155,7 @@ def run_training_phase(
                 sample_weights = batch[4].to(device, non_blocking=True)
 
                 logits, projections = ema_model_compiled(inputs)
-                loss, components = method.compute_loss((logits, projections), labels, extra_info=extra_info)
+                loss, components = val_method.compute_loss((logits, projections), labels, extra_info=extra_info)
                 
                 batch_size = inputs.size(0)
                 val_loss_sum += loss.item() * batch_size
@@ -167,6 +172,15 @@ def run_training_phase(
                 probs = torch.sigmoid(flat_logits)
                 brier = ((probs - labels.float()) ** 2).sum().item()
                 val_brier_sum += brier
+
+                # Some losses (actually only dataset_score_matching) need to be explicitly updated with new model outputs
+                try:
+                    with torch.no_grad():
+                        model_output = model_compiled(inputs)
+                        val_method.update_loss(model_output, labels, extra_info=extra_info)
+                except AttributeError:
+                    # not all methods have this; that is expected and fine
+                    pass                   
 
         # Aggregation
         epoch_train_loss = train_loss_sum / len(train_loader.dataset)
@@ -262,6 +276,9 @@ def run_testing_phase(
     test_brier_aligned_sum = 0.0
     test_auroc_aligned.reset()
     test_results_aligned = []
+
+    test_method_aligned = method.clone(dataset_size=len(test_loader_aligned.dataset))
+    test_method_misaligned = method.clone(dataset_size=len(test_loader_misaligned.dataset))
     
     with torch.no_grad():
         for indices, inputs, labels, drain in tqdm(test_loader_aligned, desc="Test Aligned", leave=False):
@@ -271,7 +288,8 @@ def run_testing_phase(
 
             logits, projections = ema_model(inputs)
             
-            loss, components = method.compute_loss((logits, projections), labels, extra_info={"drain": drain, 'indices': indices})
+            extra_info = {"drain": drain, 'indices': indices}
+            loss, components = test_method_aligned.compute_loss((logits, projections), labels, extra_info=extra_info)
             
             batchsize = inputs.size(0)
             test_loss_aligned += loss.item() * batchsize
@@ -286,6 +304,15 @@ def run_testing_phase(
                 'y_prob': probs.cpu(), 
                 'drain': drain.cpu()
             }))
+
+            # Some losses (actually only dataset_score_matching) need to be explicitly updated with new model outputs
+            try:
+                with torch.no_grad():
+                    model_output = ema_model(inputs)
+                    test_method_aligned.update_loss(model_output, labels, extra_info=extra_info)
+            except AttributeError:
+                # not all methods have this; that is expected and fine
+                pass    
 
     test_loss_aligned /= len(test_loader_aligned.dataset)
     test_brier_aligned = test_brier_aligned_sum / len(test_loader_aligned.dataset)
@@ -309,8 +336,8 @@ def run_testing_phase(
             indices = indices.to(device, non_blocking=True)
             
             logits, projections = ema_model(inputs)
-            
-            loss, components = method.compute_loss((logits, projections), labels, extra_info={"drain": drain, 'indices': indices})
+            extra_info = {"drain": drain, 'indices': indices}
+            loss, components = test_method_misaligned.compute_loss((logits, projections), labels, extra_info=extra_info)
 
             batchsize = inputs.size(0)
             test_loss_misaligned += loss.item() * batchsize
@@ -325,6 +352,15 @@ def run_testing_phase(
                 'y_prob': probs.cpu(), 
                 'drain': drain.cpu()
             }))
+
+            # Some losses (actually only dataset_score_matching) need to be explicitly updated with new model outputs
+            try:
+                with torch.no_grad():
+                    model_output = ema_model(inputs)
+                    test_method_misaligned.update_loss(model_output, labels, extra_info=extra_info)
+            except AttributeError:
+                # not all methods have this; that is expected and fine
+                pass               
 
     test_loss_misaligned /= len(test_loader_misaligned.dataset)
     test_brier_misaligned = test_brier_misaligned_sum / len(test_loader_misaligned.dataset)

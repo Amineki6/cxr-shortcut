@@ -138,6 +138,7 @@ class DatasetScoreMatchingLoss(nn.Module):
 class DatasetScoreMatchingMethod(BaseMethod):
     def __init__(self, config: ExperimentConfig, dataset_size: int):
         super().__init__(config)
+        self.dataset_size = dataset_size
         self.score_matching_loss = DatasetScoreMatchingLoss(
             min_subgroup_count=getattr(config, 'dataset_score_matching_min_subgroup_count', 10),
             dataset_size=dataset_size,
@@ -195,3 +196,24 @@ class DatasetScoreMatchingMethod(BaseMethod):
                                         labels=targets,
                                         groups=extra_info['drain'],
                                         indices=extra_info['indices'])        
+
+    def clone(self, dataset_size: Optional[int] = None):
+        """
+        Creates a copy with a fresh loss instance, optionally with a new dataset size.
+        
+        Args:
+            dataset_size: New dataset size for the cloned instance. 
+                         If None, uses the same size as the original.
+        
+        Returns:
+            DatasetScoreMatchingMethod: A new instance with fresh buffers.
+        """
+        new_dataset_size = dataset_size if dataset_size is not None else self.dataset_size
+        
+        # Create a new instance with potentially different dataset size
+        cloned = DatasetScoreMatchingMethod(self.config, new_dataset_size)
+        
+        # Copy over lambda_val in case it was modified after initialization
+        cloned.lambda_val = self.lambda_val
+        
+        return cloned
