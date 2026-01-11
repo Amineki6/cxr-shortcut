@@ -232,6 +232,19 @@ def objective(trial):
 
     run.finish()
 
+    # Clean up compiled models and CUDA graphs
+    del model, ema_model, optimizer, method
+    del train_loader, val_loader
+    
+    # Clear CUDA cache
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()  # Wait for all operations to complete
+    
+    # Force garbage collection
+    import gc
+    gc.collect()
+    
     # Cleanup: Remove checkpoint to save space
     if chkpt_path.exists():
         chkpt_path.unlink()

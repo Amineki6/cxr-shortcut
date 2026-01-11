@@ -91,6 +91,7 @@ def run_training_phase(
             
             # Pass weights to method if they exist
             if weights:
+                weights = weights.to(device, non_blocking=True)
                 targets = (labels, weights) 
             else:
                 targets = labels
@@ -239,6 +240,13 @@ def run_training_phase(
                 'val_auroc': epoch_val_auroc
             }, chkpt_path)
 
+    del val_method
+
+    if "cuda" in str(device):
+        del model_compiled, ema_model_compiled
+        torch.compiler.reset()
+        torch.cuda.empty_cache()       
+
     return best_metric_val
 
 
@@ -383,6 +391,10 @@ def run_testing_phase(
 
     logging.info(f"Test Aligned - Loss: {test_loss_aligned:.4f} AUROC: {test_auroc_aligned.compute():.4f}")
     logging.info(f"Test Misaligned - Loss: {test_loss_misaligned:.4f} AUROC: {test_auroc_misaligned.compute():.4f}")
+
+    del test_method_aligned, test_method_misaligned
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()    
 
 
 def get_dataloaders(config: ExperimentConfig, debug=False):

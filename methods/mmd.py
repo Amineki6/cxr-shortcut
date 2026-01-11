@@ -71,6 +71,9 @@ class MMDLoss(nn.Module):
         
         # MMD Statistic: Mean(XX) + Mean(YY) - 2 * Mean(XY)
         loss = torch.mean(XX) + torch.mean(YY) - torch.mean(XY) - torch.mean(YX)
+
+        del kernels
+        
         return loss
 
 class MMDMethod(BaseMethod):
