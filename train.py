@@ -17,6 +17,7 @@ from config import ExperimentConfig
 from model import CXP_Model
 import methods
 from utils import run_training_phase, get_dataloaders, run_final_eval, identify_error_set, get_jtt_loader
+from mem_log import check_large_objects, log_memory_usage
 
 # Global args placeholder to be populated in main
 GLOBAL_ARGS: argparse.Namespace = argparse.Namespace()
@@ -239,15 +240,20 @@ def objective(trial):
     # Clear CUDA cache
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-        torch.cuda.synchronize()  # Wait for all operations to complete
+        torch.cuda.synchronize()
     
     # Force garbage collection
     import gc
     gc.collect()
+    gc.collect()  # Claude claims this is a good idea "for cyclic references" ?? Not going to hurt, so ...
     
     # Cleanup: Remove checkpoint to save space
     if chkpt_path.exists():
         chkpt_path.unlink()
+
+    # Log memory state
+    log_memory_usage()
+    check_large_objects()
 
     # Return the metric optimized
     return best_metric

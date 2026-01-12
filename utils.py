@@ -15,7 +15,7 @@ from config import ExperimentConfig
 from dataset import CXP_dataset
 from model import CXP_Model
 import methods
-
+from mem_log import check_shm_usage, log_memory_usage
 
 def run_training_phase(
     config, 
@@ -200,6 +200,9 @@ def run_training_phase(
                      f"Train Loss: {epoch_train_loss:.4f} AUROC: {epoch_train_auroc:.4f} "
                      f"Val Loss: {epoch_val_loss:.4f} AUROC: {epoch_val_auroc:.4f} "
                      f"Val BCE: {epoch_val_bce:.4f} wBCE: {epoch_val_wbce:.4f} ")
+        
+        check_shm_usage()
+        log_memory_usage()
 
         wandb.log({
             f"{wandb_prefix}epoch": epoch,
