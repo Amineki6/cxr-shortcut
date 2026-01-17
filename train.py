@@ -11,6 +11,7 @@ import torch.optim as optim
 from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 import wandb
 import optuna
+from timm.optim.muon import Muon
 
 # Local imports from your refactored structure
 from config import ExperimentConfig
@@ -211,7 +212,8 @@ def objective(trial):
     if model.projection_head is not None:
         params.append({'params': model.projection_head.parameters(), 'lr': config.lr})
 
-    optimizer = optim.AdamW(params, weight_decay=config.weight_decay, eps=1e-10)
+    #optimizer = optim.AdamW(params, weight_decay=config.weight_decay, eps=1e-10)
+    optimizer = Muon(params, weight_decay=config.weight_decay, eps=1e-10, algo="adamuon")
 
     # Filename for this specific trial's checkpoint
     trial_str = str(trial.number).zfill(3)
