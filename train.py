@@ -150,7 +150,7 @@ def objective(trial):
         # 1. Initialize Identification Model
         model_1 = CXP_Model(method).to(device)
         ema_model_1 = AveragedModel(model_1, multi_avg_fn=get_ema_multi_avg_fn(config.ema_decay), use_buffers=True)
-        optimizer_1 = optim.AdamW(model_1.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+        optimizer_1 = optim.AdamW(model_1.parameters(), lr=config.lr, weight_decay=config.weight_decay, eps=1e-10)
         
         # 2. Train Identification Model
         stage1_chkpt = study_root / "checkpoints" / f"trial_{trial.number}_jtt_stage1.chkpt"
@@ -211,7 +211,7 @@ def objective(trial):
     if model.projection_head is not None:
         params.append({'params': model.projection_head.parameters(), 'lr': config.lr})
 
-    optimizer = optim.AdamW(params, weight_decay=config.weight_decay)
+    optimizer = optim.AdamW(params, weight_decay=config.weight_decay, eps=1e-10)
 
     # Filename for this specific trial's checkpoint
     trial_str = str(trial.number).zfill(3)
