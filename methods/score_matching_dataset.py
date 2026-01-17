@@ -136,13 +136,16 @@ class DatasetScoreMatchingLoss(nn.Module):
 
 
 class DatasetScoreMatchingMethod(BaseMethod):
-    def __init__(self, config: ExperimentConfig, dataset_size: int):
+    def __init__(self, config: ExperimentConfig, dataset_size: Optional[int] = None):
         super().__init__(config)
         self.dataset_size = dataset_size
-        self.score_matching_loss = DatasetScoreMatchingLoss(
-            min_subgroup_count=getattr(config, 'dataset_score_matching_min_subgroup_count', 10),
-            dataset_size=dataset_size,
-            device=config.device)
+        if dataset_size is not None:
+            self.score_matching_loss = DatasetScoreMatchingLoss(
+                min_subgroup_count=getattr(config, 'dataset_score_matching_min_subgroup_count', 10),
+                dataset_size=dataset_size,
+                device=config.device)
+        else:
+            self.score_matching_loss = None
         
         # Default lambda is 1.0 if not specified in config
         self.lambda_val = getattr(config, 'dataset_score_matching_lambda', 1.0)
@@ -168,6 +171,7 @@ class DatasetScoreMatchingMethod(BaseMethod):
         """
         assert extra_info is not None
         assert 'drain' in extra_info.keys()
+        assert self.score_matching_loss is not None
 
         logits, _ = model_output
         
@@ -190,6 +194,8 @@ class DatasetScoreMatchingMethod(BaseMethod):
                      extra_info: Optional[dict] = None
                      ):
         
+        assert self.score_matching_loss is not None
+
         logits, _ = model_output
         
         self.score_matching_loss.update(probs=torch.sigmoid(logits.view(-1)),
@@ -210,7 +216,7 @@ class DatasetScoreMatchingMethod(BaseMethod):
         """
         new_dataset_size = dataset_size if dataset_size is not None else self.dataset_size
         
-        # Create a new instance with potentially different dataset size
+        # Create a new instance with potentially different dataset size and newly instantiated loss
         cloned = DatasetScoreMatchingMethod(self.config, new_dataset_size)
         
         # Copy over lambda_val in case it was modified after initialization

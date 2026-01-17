@@ -33,7 +33,6 @@ def run_training_phase(
     device = config.device
     epochs_to_run = num_epochs if num_epochs is not None else config.epochs
     
-    
     # Only compile on CUDA
     if "cuda" in str(device):
         model_compiled = torch.compile(model, fullgraph=True, mode="reduce-overhead")
@@ -47,8 +46,10 @@ def run_training_phase(
     val_auroc = BinaryAUROC()
     val_wauroc = BinaryAUROC()
 
-    # create copy of method - in particular of the attached loss - because some methods
-    # (-> score_matching_dataset) have a loss state that should not be shared between train and val
+    # create copies of method - in particular of the attached loss - because some methods
+    # (-> score_matching_dataset) have a loss state that should not be shared between train and val 
+    # and that should be reset for each new training run
+    train_method = method.clone(dataset_size=len(train_loader.dataset))
     val_method = method.clone(dataset_size=len(val_loader.dataset))
 
     if config.select_chkpt_on.upper() in ["AUROC", "WAUROC"]:
@@ -103,7 +104,7 @@ def run_training_phase(
             
             extra_info = {"drain": drain, 'indices': indices} 
             
-            loss, components = method.compute_loss(model_output, targets, extra_info=extra_info)
+            loss, components = train_method.compute_loss(model_output, targets, extra_info=extra_info)
             
             loss.backward()
             optimizer.step()
@@ -243,6 +244,7 @@ def run_training_phase(
                 'val_auroc': epoch_val_auroc
             }, chkpt_path)
 
+    del train_method
     del val_method
 
     if "cuda" in str(device):
@@ -396,6 +398,7 @@ def run_testing_phase(
     logging.info(f"Test Misaligned - Loss: {test_loss_misaligned:.4f} AUROC: {test_auroc_misaligned.compute():.4f}")
 
     del test_method_aligned, test_method_misaligned
+    
     if torch.cuda.is_available():
         torch.cuda.empty_cache()    
 

@@ -141,7 +141,7 @@ def objective(trial):
     train_loader, val_loader, _, _ = get_dataloaders(config, debug=GLOBAL_ARGS.debug)
     
     # Get Method Strategy (Standard or SupCon)
-    method = methods.get_method(config.method_name, config, train_set_size=len(train_loader.dataset))
+    method = methods.get_method(config.method_name, config)
 
     # --- JTT STAGE 1 LOGIC ---
     if config.method_name == "jtt":
@@ -294,7 +294,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.study_name is None:
-        args.study_name = coolname.generate_slug(2)
+        args.study_name = coolname.generate_slug(2) + '_' + args.method
     
     # CREATE STUDY FOLDER
     folder_name = f"{args.study_name}"
