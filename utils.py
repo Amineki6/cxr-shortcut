@@ -127,7 +127,7 @@ def run_training_phase(
             try:
                 with torch.no_grad():
                     model_output = model_compiled(inputs)
-                    method.update_loss(model_output, targets, extra_info=extra_info)
+                    train_method.update_loss(model_output, targets, extra_info=extra_info)
             except AttributeError:
                 # not all methods have this; that is expected and fine
                 pass   
@@ -398,7 +398,7 @@ def run_testing_phase(
     logging.info(f"Test Misaligned - Loss: {test_loss_misaligned:.4f} AUROC: {test_auroc_misaligned.compute():.4f}")
 
     del test_method_aligned, test_method_misaligned
-    
+
     if torch.cuda.is_available():
         torch.cuda.empty_cache()    
 
