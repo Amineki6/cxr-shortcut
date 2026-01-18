@@ -22,9 +22,16 @@ class CXP_Model(nn.Module):
         # 1. Load the Backbone (DenseNet121)
         #self.encoder = densenet121(weights='IMAGENET1K_V1')
         model_size = 'small', # 'tiny'
-        self.encoder = torch.hub.load('../dinov3', f'dinov3_convnext_{model_size}',
-                                weights=f"/dino/dinov3_convnext_{model_size}_pretrain_lvd1689m-21b726bb.pth",
-                                source='local', trust_repo=True, skip_validation=True)
+        if model_size == 'tiny':
+            self.encoder = torch.hub.load('../dinov3', f'dinov3_convnext_{model_size}',
+                                    weights=f"/dino/dinov3_convnext_{model_size}_pretrain_lvd1689m-21b726bb.pth",
+                                    source='local', trust_repo=True, skip_validation=True)
+        elif model_size == 'small':
+            self.encoder = torch.hub.load('../dinov3', f'dinov3_convnext_{model_size}',
+                                    weights="/dino/dinov3_convnext_small_pretrain_lvd1689m-296db49d.pth",
+                                    source='local', trust_repo=True, skip_validation=True)
+        else:
+            raise NotImplementedError()
         
         # Get the feature dimension (1024 for DenseNet121)
         #num_features = self.encoder.classifier.in_features
