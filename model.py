@@ -23,7 +23,8 @@ class CXP_Model(nn.Module):
         #self.encoder = densenet121(weights='IMAGENET1K_V1')
         model_size = 'tiny'
         self.encoder = torch.hub.load('../dinov3', f'dinov3_convnext_{model_size}',
-                                weights=f"/dino/dinov3_convnext_{model_size}_pretrain_lvd1689m-21b726bb.pth")   
+                                weights=f"/dino/dinov3_convnext_{model_size}_pretrain_lvd1689m-21b726bb.pth",
+                                trust_repo=True, skip_validation=True)
         
         # Get the feature dimension (1024 for DenseNet121)
         #num_features = self.encoder.classifier.in_features
