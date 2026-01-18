@@ -20,10 +20,14 @@ class CXP_Model(nn.Module):
         super().__init__()
         
         # 1. Load the Backbone (DenseNet121)
-        self.encoder = densenet121(weights='IMAGENET1K_V1')
+        #self.encoder = densenet121(weights='IMAGENET1K_V1')
+        model_size = 'tiny'
+        self.encoder = torch.hub.load('facebookresearch/dinov3', f'dinov3_convnext_{model_size}',
+                                weights=f"/dino/dinov3_convnext_{model_size}_pretrain_lvd1689m-21b726bb.pth")   
         
         # Get the feature dimension (1024 for DenseNet121)
-        num_features = self.encoder.classifier.in_features
+        #num_features = self.encoder.classifier.in_features
+        num_features = 768
         
         # Remove the original classification head so we get raw features
         self.encoder.classifier = nn.Identity()
