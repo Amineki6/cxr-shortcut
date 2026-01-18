@@ -117,7 +117,7 @@ def run_training_phase(
             # Metrics
             logits, _ = model_output
             flat_logits = logits.reshape(-1)
-            train_auroc.update(flat_logits.cpu(), labels.cpu())
+            train_auroc.update(flat_logits.detach().cpu(), labels.detach().cpu())
             
             probs = torch.sigmoid(flat_logits)
             brier = ((probs - labels.float()) ** 2).sum().item()
@@ -168,8 +168,8 @@ def run_training_phase(
                                                                  reduction="sum")            
                 
                 flat_logits = logits.reshape(-1)
-                val_auroc.update(flat_logits.cpu(), labels.cpu())
-                val_wauroc.update(flat_logits.cpu(), labels.cpu(), weight=sample_weights.cpu())
+                val_auroc.update(flat_logits.detach().cpu(), labels.detach().cpu())
+                val_wauroc.update(flat_logits.detach().cpu(), labels.detach().cpu(), weight=sample_weights.detach().cpu())
 
                 probs = torch.sigmoid(flat_logits)
                 brier = ((probs - labels.float()) ** 2).sum().item()
@@ -244,8 +244,7 @@ def run_training_phase(
                 'val_auroc': epoch_val_auroc
             }, chkpt_path)
 
-    del train_method
-    del val_method
+    del train_method, val_method, train_auroc, val_auroc, val_wauroc
 
     if "cuda" in str(device):
         del model_compiled, ema_model_compiled
@@ -313,9 +312,9 @@ def run_testing_phase(
             test_brier_aligned_sum += brier
             
             test_results_aligned.append(pd.DataFrame({
-                'label': labels.cpu(), 
-                'y_prob': probs.cpu(), 
-                'drain': drain.cpu()
+                'label': labels.detach().cpu(), 
+                'y_prob': probs.detach().cpu(), 
+                'drain': drain.detach().cpu()
             }))
 
             # Some losses (actually only dataset_score_matching) need to be explicitly updated with new model outputs
@@ -361,9 +360,9 @@ def run_testing_phase(
             test_brier_misaligned_sum += brier
             
             test_results_misaligned.append(pd.DataFrame({
-                'label': labels.cpu(), 
-                'y_prob': probs.cpu(), 
-                'drain': drain.cpu()
+                'label': labels.detach().cpu(), 
+                'y_prob': probs.detach().cpu(), 
+                'drain': drain.detach().cpu()
             }))
 
             # Some losses (actually only dataset_score_matching) need to be explicitly updated with new model outputs
@@ -397,7 +396,7 @@ def run_testing_phase(
     logging.info(f"Test Aligned - Loss: {test_loss_aligned:.4f} AUROC: {test_auroc_aligned.compute():.4f}")
     logging.info(f"Test Misaligned - Loss: {test_loss_misaligned:.4f} AUROC: {test_auroc_misaligned.compute():.4f}")
 
-    del test_method_aligned, test_method_misaligned
+    del test_method_aligned, test_method_misaligned, test_auroc_aligned, test_auroc_misaligned
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()    
@@ -638,7 +637,7 @@ def identify_error_set(model, method, loader, device, max_batches=None):
             preds = (torch.sigmoid(logits) > 0.5).float()
             
             # Identify mismatches
-            mismatches = (preds.view(-1) != labels.view(-1)).cpu().numpy()
+            mismatches = (preds.view(-1) != labels.view(-1)).detach().cpu().numpy()
             
             # Map batch-relative indices to global indices
             batch_size = inputs.size(0)
