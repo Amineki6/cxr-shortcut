@@ -21,7 +21,7 @@ class CXP_Model(nn.Module):
         
         # 1. Load the Backbone (DenseNet121)
         #self.encoder = densenet121(weights='IMAGENET1K_V1')
-        model_size = 'small', # 'tiny'
+        model_size = 'small'  # 'tiny'
         if model_size == 'tiny':
             self.encoder = torch.hub.load('../dinov3', f'dinov3_convnext_{model_size}',
                                     weights=f"/dino/dinov3_convnext_{model_size}_pretrain_lvd1689m-21b726bb.pth",
