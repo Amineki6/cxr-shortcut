@@ -21,7 +21,7 @@ class ExperimentConfig:
     # 2. Hyperparameters
     # -------------------------------------------------------------------------
     # General Optimizer Params (not tuned)
-    lr: float = 0.0002
+    lr: float = 0.0005
     weight_decay: float = 0.005
     
     # EMA (Exponential Moving Average) Params (not tuned)
