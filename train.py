@@ -212,8 +212,8 @@ def objective(trial):
     if model.projection_head is not None:
         params.append({'params': model.projection_head.parameters(), 'lr': config.lr})
 
-    #optimizer = optim.AdamW(params, weight_decay=config.weight_decay, eps=1e-10)
-    optimizer = Muon(params, weight_decay=config.weight_decay, eps=1e-10, algo="adamuon")
+    optimizer = optim.AdamW(params, weight_decay=config.weight_decay, eps=1e-10)
+    #optimizer = Muon(params, weight_decay=config.weight_decay, eps=1e-10, algo="adamuon")
 
     # Filename for this specific trial's checkpoint
     trial_str = str(trial.number).zfill(3)
