@@ -283,8 +283,9 @@ if __name__ == '__main__':
                        help='Use weighted sampler for training')
     parser.add_argument('--balance_val', type=lambda x: x.lower() == 'true', default=False,
                        help='Use balanced validation set')
-    parser.add_argument('--select_chkpt_on', type=str, default="bce", choices=["bce", "wbce", "auroc", "wauroc"],
-                       help='Metric to select best model')
+    parser.add_argument('--select_chkpt_on', type=str, default="fairness", 
+                    choices=["bce", "wbce", "auroc", "wauroc", "fairness"],
+                    help='Metric to select best model')
     parser.add_argument('--debug', action='store_true', 
                        help='Run in debug mode (tiny data, 1 epoch, CPU/MPS friendly)')
     
@@ -334,8 +335,10 @@ if __name__ == '__main__':
         logging.info(f"Starting Study: {args.study_name}")
         logging.info(f"Device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
 
-        # Define Optimization Direction
-        direction = "maximize" if 'AUROC' in args.select_chkpt_on.upper() else "minimize"
+        if 'AUROC' in args.select_chkpt_on.upper() or args.select_chkpt_on.upper() == "FAIRNESS":
+            direction = "maximize"
+        else:
+            direction = "minimize"
         
         study = optuna.create_study(
             sampler=optuna.samplers.GPSampler(),
