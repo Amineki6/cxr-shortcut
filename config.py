@@ -17,6 +17,8 @@ class ExperimentConfig:
     # Options: "standard", "supcon", "mmd", "score_matching"
     method_name: str = "standard" 
 
+    select_chkpt_on: str = "fairness"  # Change default or add as option
+    
     # -------------------------------------------------------------------------
     # 2. Hyperparameters
     # -------------------------------------------------------------------------

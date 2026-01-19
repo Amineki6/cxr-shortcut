@@ -16,6 +16,7 @@ from dataset import CXP_dataset
 from model import CXP_Model
 import methods
 from mem_log import check_shm_usage, log_memory_usage
+from scoring import compute_group_fairness_score
 
 def run_training_phase(
     config, 
@@ -144,6 +145,10 @@ def run_training_phase(
         val_auroc.reset()
         val_wauroc.reset()
         
+        all_val_logits = []
+        all_val_labels = []
+        all_val_drains = []
+
         with torch.no_grad():
             for batch in val_loader:
                 indices = batch[0].to(device, non_blocking=True)
@@ -175,6 +180,10 @@ def run_training_phase(
                 brier = ((probs - labels.float()) ** 2).sum().item()
                 val_brier_sum += brier
 
+                all_val_logits.append(flat_logits.detach().cpu())
+                all_val_labels.append(labels.detach().cpu())
+                all_val_drains.append(drain.detach().cpu())
+
                 # Some losses (actually only dataset_score_matching) need to be explicitly updated with new model outputs
                 try:
                     with torch.no_grad():
@@ -196,11 +205,20 @@ def run_training_phase(
         epoch_train_brier = train_brier_sum / len(train_loader.dataset)
         epoch_val_brier = val_brier_sum / len(val_loader.dataset)
 
+        all_val_logits = torch.cat(all_val_logits)
+        all_val_labels = torch.cat(all_val_labels)
+        all_val_drains = torch.cat(all_val_drains)
+
+        epoch_val_fairness_score, fairness_details = compute_group_fairness_score(
+            all_val_logits, all_val_labels, all_val_drains, device
+        )
+
         # Logging
         logging.info(f"{wandb_prefix}Trial {trial_number} Ep [{epoch+1}/{epochs_to_run}] "
                      f"Train Loss: {epoch_train_loss:.4f} AUROC: {epoch_train_auroc:.4f} "
                      f"Val Loss: {epoch_val_loss:.4f} AUROC: {epoch_val_auroc:.4f} "
-                     f"Val BCE: {epoch_val_bce:.4f} wBCE: {epoch_val_wbce:.4f} ")
+                     f"Val BCE: {epoch_val_bce:.4f} wBCE: {epoch_val_wbce:.4f} "
+                     f"Fairness: {epoch_val_fairness_score:.4f}")
         
         check_shm_usage()
         log_memory_usage()
@@ -216,7 +234,10 @@ def run_training_phase(
             f"{wandb_prefix}auroc/val": epoch_val_auroc,
             f"{wandb_prefix}wauroc/val": epoch_val_wauroc,
             f"{wandb_prefix}brier/train": epoch_train_brier,
-            f"{wandb_prefix}brier/val": epoch_val_brier
+            f"{wandb_prefix}brier/val": epoch_val_brier,
+            f"{wandb_prefix}fairness_score/val": epoch_val_fairness_score,
+            f"{wandb_prefix}fairness_mean_avg/val": fairness_details['summary']['mean_average'],
+            f"{wandb_prefix}fairness_mean_diff/val": fairness_details['summary']['mean_abs_diff'],            
         })
 
         # Checkpointing
@@ -227,6 +248,9 @@ def run_training_phase(
         elif config.select_chkpt_on.upper() == "WAUROC" and epoch_val_wauroc > best_metric_val:
             best_metric_val = epoch_val_wauroc
             save_chkpt = True
+        elif config.select_chkpt_on.upper() == "FAIRNESS" and epoch_val_fairness_score > best_metric_val:
+            best_metric_val = epoch_val_fairness_score
+            save_chkpt = True            
         elif config.select_chkpt_on.upper() == "BCE" and epoch_val_bce < best_metric_val:
             best_metric_val = epoch_val_bce
             save_chkpt = True
