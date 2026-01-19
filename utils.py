@@ -210,7 +210,7 @@ def run_training_phase(
         all_val_drains = torch.cat(all_val_drains)
 
         epoch_val_fairness_score, fairness_details = compute_group_fairness_score(
-            all_val_logits, all_val_labels, all_val_drains, device
+            all_val_logits, all_val_labels, all_val_drains
         )
 
         # Logging
