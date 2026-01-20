@@ -53,7 +53,7 @@ def run_training_phase(
     train_method = method.clone(dataset_size=len(train_loader.dataset))
     val_method = method.clone(dataset_size=len(val_loader.dataset))
 
-    if config.select_chkpt_on.upper() in ["AUROC", "WAUROC"]:
+    if config.select_chkpt_on.upper() in ["AUROC", "WAUROC", "FAIRNESS"]:
         best_metric_val = 0.0
     else:
         best_metric_val = float('inf')
