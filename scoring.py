@@ -14,7 +14,7 @@ def compute_group_fairness_score(logits, labels, groups) -> Tuple[float, Dict]:
       - avg_g = (AUROC_1 + AUROC_2) / 2
       - diff_g = |AUROC_1 - AUROC_2|
     
-    Final score = mean_g(avg) - mean_g(diff)
+    Final score = mean_g(avg) - mean(diff_g)
     
     Samples with missing group info (e.g., NaN, -1) are excluded from computation.
     
@@ -22,6 +22,7 @@ def compute_group_fairness_score(logits, labels, groups) -> Tuple[float, Dict]:
         logits: Model logits (tensor, 1D)
         labels: Ground truth labels (tensor, 1D, binary 0/1)
         groups: Group assignments (tensor, 1D, integer or may contain NaN/-1 for missing)
+        device: torch device
     
     Returns:
         score: The fairness-adjusted score (higher is better)
@@ -63,11 +64,12 @@ def compute_group_fairness_score(logits, labels, groups) -> Tuple[float, Dict]:
     n_valid = valid_mask.sum().item()
     n_missing = (~valid_mask).sum().item()
     
+    if n_missing > 0:
+        logging.info(f"Excluding {n_missing}/{n_samples} samples with missing group info")
+    
     if n_valid == 0:
         logging.error("No samples with valid group information!")
-        return np.nan, {'error': 'no_valid_groups', 'n_missing': n_missing}
-    elif n_missing > 0:
-        logging.info(f"Excluding {n_missing}/{n_samples} samples with missing group info")
+        return 0.0, {'error': 'no_valid_groups', 'n_missing': n_missing}
     
     # Apply mask to filter valid samples only
     logits = logits[valid_mask]
@@ -222,20 +224,40 @@ def compute_group_fairness_score(logits, labels, groups) -> Tuple[float, Dict]:
     assert all(0.0 <= avg <= 1.0 for avg in group_avgs), "Invalid average values"
     assert all(0.0 <= diff <= 1.0 for diff in group_diffs), "Invalid diff values"
     
-    # Final score
+    # Compute various fairness scores
     mean_avg = np.mean(group_avgs)
     mean_diff = np.mean(group_diffs)
-    score = mean_avg - mean_diff
+    
+    # Original score (can be too harsh on performance)
+    score_original = mean_avg - mean_diff
+    
+    # Worst-group performance (robust fairness metric)
+    score_worst_group = np.min(group_avgs)
+    
+    # Geometric mean (balances fairness and performance)
+    score_geometric = np.prod(group_avgs) ** (1.0 / len(group_avgs))
+    
+    # Weighted penalty (less harsh than original)
+    penalty_weight = 0.3  # Adjustable: lower = less penalty for imbalance
+    score_weighted = mean_avg - penalty_weight * mean_diff
+    
+    # Use geometric mean as primary score (good for shortcut mitigation)
+    score = score_geometric
     
     assert isinstance(mean_avg, (float, np.floating)), f"mean_avg type is {type(mean_avg)}"
     assert isinstance(mean_diff, (float, np.floating)), f"mean_diff type is {type(mean_diff)}"
     assert 0.0 <= mean_avg <= 1.0, f"mean_avg={mean_avg} out of range"
     assert 0.0 <= mean_diff <= 1.0, f"mean_diff={mean_diff} out of range"
+    assert 0.0 <= score <= 1.0, f"score={score} out of range"
     
     details['summary'] = {
         'mean_average': float(mean_avg),
         'mean_abs_diff': float(mean_diff),
         'fairness_score': float(score),
+        'score_geometric_mean': float(score_geometric),
+        'score_worst_group': float(score_worst_group),
+        'score_weighted_penalty': float(score_weighted),
+        'score_original': float(score_original),
         'n_valid_groups': len(group_avgs),
         'n_total_groups': n_groups,
         'n_valid_samples': n_valid,
@@ -243,8 +265,10 @@ def compute_group_fairness_score(logits, labels, groups) -> Tuple[float, Dict]:
     }
     
     logging.info(
-        f"Fairness Score: {score:.4f} (mean_avg={mean_avg:.4f}, mean_diff={mean_diff:.4f}, "
-        f"valid_groups={len(group_avgs)}/{n_groups})"
+        f"Fairness Score (geom_mean): {score:.4f} | "
+        f"worst_group: {score_worst_group:.4f} | "
+        f"mean_avg: {mean_avg:.4f} | mean_diff: {mean_diff:.4f} | "
+        f"valid_groups={len(group_avgs)}/{n_groups}"
     )
     
     return float(score), details
